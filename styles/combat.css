@@ -495,10 +495,16 @@
   color:         var(--vtm-text-strong);
   border:        1px solid var(--vtm-border);
   border-radius: var(--vtm-radius);
-  padding:       7px 10px;
+  padding:       5px 8px;
   font-family:   var(--vtm-font);
-  font-size:     14px;
+  font-size:     12px;
+  width:         100%;
+  box-sizing:    border-box;
 }
+
+/* Optgruppen-Label etwas kleiner damit mehr Platz für Optionen bleibt */
+.vtm-form-group select optgroup { font-size: 11px; }
+.vtm-form-group select option   { font-size: 12px; }
 .vtm-form-group select:focus,
 .vtm-form-group input:focus {
   outline:      none;

@@ -13,17 +13,17 @@
       <label for="vtm-actionType">Aktion</label>
       <select id="vtm-actionType" name="actionType">
         <optgroup label="Nahkampf">
-          <option value="attack_unarmed" {{#eq intent.actionType "attack_unarmed"}}selected{{/eq}}>Unbewaffnet (STR + Raufen)</option>
-          <option value="attack_light"   {{#eq intent.actionType "attack_light"  }}selected{{/eq}}>Leichte Waffe (GES + Nahkampf)</option>
-          <option value="attack_heavy"   {{#eq intent.actionType "attack_heavy"  }}selected{{/eq}}>Schwere Waffe (STR + Nahkampf)</option>
+          <option value="attack_unarmed" {{#eq intent.actionType "attack_unarmed"}}selected{{/eq}}>Unbewaffnet · STR+Raufen</option>
+          <option value="attack_light"   {{#eq intent.actionType "attack_light"  }}selected{{/eq}}>Leichte Waffe · GES+Nahkampf</option>
+          <option value="attack_heavy"   {{#eq intent.actionType "attack_heavy"  }}selected{{/eq}}>Schwere Waffe · STR+Nahkampf</option>
         </optgroup>
         <optgroup label="Fernkampf">
-          <option value="attack_ranged"  {{#eq intent.actionType "attack_ranged" }}selected{{/eq}}>Fernkampf (GES + Schusswaffen)</option>
-          <option value="attack_aimed"   {{#eq intent.actionType "attack_aimed"  }}selected{{/eq}}>Gezielt (WITS + Schusswaffen)</option>
+          <option value="attack_ranged"  {{#eq intent.actionType "attack_ranged" }}selected{{/eq}}>Fernkampf · GES+Schusswaffen</option>
+          <option value="attack_aimed"   {{#eq intent.actionType "attack_aimed"  }}selected{{/eq}}>Gezielt · WITS+Schusswaffen</option>
         </optgroup>
         <optgroup label="Verteidigung">
-          <option value="defend" {{#eq intent.actionType "defend"}}selected{{/eq}}>Parieren (GES + Nahkampf/Raufen)</option>
-          <option value="dodge"  {{#eq intent.actionType "dodge" }}selected{{/eq}}>Ausweichen (GES + Sport)</option>
+          <option value="defend" {{#eq intent.actionType "defend"}}selected{{/eq}}>Parieren · GES+Nahkampf/Raufen</option>
+          <option value="dodge"  {{#eq intent.actionType "dodge" }}selected{{/eq}}>Ausweichen · GES+Sport</option>
         </optgroup>
         {{#if hasDisciplines}}
         <optgroup label="Disziplin">

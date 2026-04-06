@@ -50,23 +50,45 @@ import { KNOWN_POWER_NAMES } from '../disciplines/discipline-powers.js';
 // ─── wod5e trait lookup ───────────────────────────────────────────────────────
 
 /**
- * Look up a skill/attribute value from wod5e item list.
- * wod5e stores all attributes and skills as items with type "skill".
- * The canonical identifier is item.system.skill (lowercase English name).
+ * Look up a skill/attribute value from a wod5e actor.
+ *
+ * wod5e stores traits in several ways depending on the fork/version:
+ *   A) Items with type "skill" or "attribute":
+ *        item.system.skill (or .attribute) = canonical English key
+ *        item.system.value = dot rating
+ *   B) Direct system fields:
+ *        actor.system[traitName].value          e.g. actor.system.dexterity.value
+ *        actor.system.abilities[traitName].value
+ *        actor.system.attributes[traitName].value
+ *   C) Abbreviated keys:
+ *        actor.system.dex.value  (some forks shorten attribute names)
+ *
+ * We try all patterns in order.
  *
  * @param {Actor} actor
  * @param {string} traitName  e.g. 'strength', 'brawl', 'dexterity'
  * @param {number} fallback
  */
 function wod5eSkill(actor, traitName, fallback = 1) {
-  if (!actor.items) return fallback;
-  const item = actor.items.find(i => {
-    if (i.type !== 'skill') return false;
-    // system.skill is the canonical machine key
-    const key = i.system?.skill ?? i.system?.attribute ?? i.name?.toLowerCase();
-    return key === traitName;
-  });
-  return item?.system?.value ?? fallback;
+  // ── A: item-based lookup (type "skill" OR "attribute") ───────────────────
+  if (actor.items) {
+    const item = actor.items.find(i => {
+      if (i.type !== 'skill' && i.type !== 'attribute') return false;
+      const key = i.system?.skill ?? i.system?.attribute ?? i.name?.toLowerCase();
+      return key === traitName;
+    });
+    if (item?.system?.value != null) return Number(item.system.value);
+  }
+
+  // ── B/C: direct system field fallbacks ───────────────────────────────────
+  const s = actor.system;
+  const direct =
+    s?.[traitName]?.value                    // actor.system.dexterity.value
+    ?? s?.abilities?.[traitName]?.value      // actor.system.abilities.dexterity.value
+    ?? s?.attributes?.[traitName]?.value;    // actor.system.attributes.dexterity.value
+  if (direct != null) return Number(direct);
+
+  return fallback;
 }
 
 /**
@@ -388,10 +410,23 @@ if (typeof window !== 'undefined') {
     console.log('Items (attributes/skills/disciplines):',
       actor.items.contents.map(i => ({
         name: i.name, type: i.type,
-        skill: i.system?.skill, value: i.system?.value,
+        skill:      i.system?.skill,
+        attribute:  i.system?.attribute,
+        value:      i.system?.value,
         discipline: i.system?.discipline,
       }))
     );
+    // Zeige direkte System-Felder für Attribute-Fallback-Diagnose
+    const attrKeys = ['strength','dexterity','wits','stamina'];
+    const directCheck = {};
+    for (const k of attrKeys) {
+      directCheck[k] = {
+        'system[k].value':            actor.system?.[k]?.value,
+        'system.abilities[k].value':  actor.system?.abilities?.[k]?.value,
+        'system.attributes[k].value': actor.system?.attributes?.[k]?.value,
+      };
+    }
+    console.log('Direkte System-Felder (Attribut-Fallbacks):', directCheck);
     console.groupEnd();
     return data;
   };
