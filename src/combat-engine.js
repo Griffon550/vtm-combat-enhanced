@@ -47,12 +47,6 @@ export const ActionType = Object.freeze({
   PASS:           'pass',
 });
 
-// Aktionstypen, bei denen der Charakter offensiv gebunden ist →
-// reaktiver Verteidigungspool wird halbiert (Split-Pool-Regel).
-const OFFENSIVE_ACTION_TYPES = new Set([
-  'attack_unarmed', 'attack_light', 'attack_heavy',
-  'attack_ranged',  'attack_aimed', 'attack_melee',
-]);
 
 export const DamageType = Object.freeze({
   SUPERFICIAL: 'superficial',
@@ -78,6 +72,9 @@ export const StatusEffect = Object.freeze({
   MIST_FORM:     'mist_form',      // nicht normal angreifbar (Protean Mist Form)
   VANISHED:      'vanished',       // Zielanvisierung aufgehoben (Obfuscate Vanish)
   MAJESTIC:      'majestic',       // Feinde müssen testen um anzugreifen (Presence Majesty)
+  // ── Handlungseinschränkungen ──────────────────────────────────────────────
+  RESTRAINED:    'restrained',     // fixiert — kein Verteidigungswurf möglich
+  SURPRISED:     'surprised',      // überrascht — kein Verteidigungswurf in der ersten Runde
 });
 
 // ─── Weapon table ─────────────────────────────────────────────────────────────
@@ -388,14 +385,26 @@ export class CombatSession {
    * @property {string}         narrative
    */
   resolveAll(diceOverride = null) {
-    const results = [];
-    const order   = this.getInitiativeOrder();
+    const results  = [];
+    const order    = this.getInitiativeOrder();
+
+    /**
+     * Rundenkontext für Multi-Defense-Tracking.
+     * @type {{ defenseCount: Map<string,number>, hasAttacked: Set<string> }}
+     *
+     * defenseCount  — wie oft hat dieser Teilnehmer diese Runde bereits verteidigt
+     * hasAttacked   — hat dieser Teilnehmer diese Runde bereits einen Angriff ausgeführt
+     */
+    const roundCtx = {
+      defenseCount: new Map(),
+      hasAttacked:  new Set(),
+    };
 
     for (const actor of order) {
       if (!actor.intent || actor.intent.actionType === ActionType.PASS) continue;
       if (this._isIncapacitated(actor)) continue;
 
-      const result = this._resolveOne(actor, diceOverride);
+      const result = this._resolveOne(actor, diceOverride, roundCtx);
       if (result) {
         results.push(result);
         this.log.push(result);
@@ -407,7 +416,7 @@ export class CombatSession {
   }
 
   /** Resolve a single actor's intent. */
-  _resolveOne(actor, dice) {
+  _resolveOne(actor, dice, roundCtx) {
     const { actionType } = actor.intent;
 
     if (actionType === ActionType.DEFEND || actionType === ActionType.DODGE) {
@@ -422,7 +431,7 @@ export class CombatSession {
       case ActionType.ATTACK_RANGED:
       case ActionType.ATTACK_AIMED:
       case ActionType.ATTACK_MELEE:   // backward-compat alias
-        return this._resolveAttack(actor, dice);
+        return this._resolveAttack(actor, dice, roundCtx);
       case ActionType.DISCIPLINE:
         return this._resolveDiscipline(actor);
       case ActionType.SPECIAL:
@@ -434,10 +443,13 @@ export class CombatSession {
 
   // ─── Attack resolution ────────────────────────────────────────────────────
 
-  _resolveAttack(attacker, dice) {
+  _resolveAttack(attacker, dice, roundCtx = null) {
     const intent        = attacker.intent;
     const activePowers  = intent.activePowers ?? [];
     const target        = intent.targetId ? this.participants.get(intent.targetId) : null;
+
+    // Angreifer als "hat angegriffen" markieren (zählt für dessen eigene Verteidigung später)
+    roundCtx?.hasAttacked.add(attacker.id);
 
     // ── Zielbarkeit prüfen (Mist Form, Vanish, …) ────────────────────────────
     if (target && this.disciplineEngine.cannotBeTargeted(target, target.intent?.activePowers ?? [])) {
@@ -447,7 +459,7 @@ export class CombatSession {
         actionType: intent.actionType,
         weapon: null, attackRoll: null, defenseRoll: null,
         netSuccesses: 0, rawDamage: 0, damage: 0, damageType: null,
-        effects: [], breakdown: null,
+        effects: [], breakdown: null, defenseBlocked: false,
         narrative: `${attacker.name} → ${target.name}: Ziel nicht angreifbar (Nebelform o.ä.).`,
       };
     }
@@ -463,21 +475,44 @@ export class CombatSession {
     // Automatische Erfolge aus Disziplineffekten
     const totalAtkSuccesses = attackRoll.successes + (atkBreakdown.autoSuccesses ?? 0);
 
-    // ── Verteidigungspool ─────────────────────────────────────────────────────
+    // ── Verteidigungspool — Multi-Defense-System ──────────────────────────────
+    //
+    // Jeder kann reaktiv verteidigen, AUSSER er ist:
+    //   • RESTRAINED  (physisch fixiert)
+    //   • SURPRISED   (überrascht, kein Abwehrwurf)
+    //
+    // Malus: defense_pool = base - prevDefenses - attackedPenalty + celerityReduction
+    //   prevDefenses    = Anzahl bereits absolvierter Verteidigungen diese Runde
+    //   attackedPenalty = +1 auf die ERSTE Verteidigung wenn Ziel bereits selbst angegriffen hat
+    //   celerityReduction = durch Swiftness/Celerity reduzierter Malus
+
     let defenseRoll      = null;
     let defenseSuccesses = 0;
     let defBreakdown     = null;
+    let defenseBlocked   = false;
 
-    if (target && !this._isIncapacitated(target) && target.intent) {
-      const ti          = target.intent;
-      const isReactive  = ti.actionType === ActionType.DODGE || ti.actionType === ActionType.DEFEND;
-      const isOffensive = OFFENSIVE_ACTION_TYPES.has(ti.actionType);
+    if (target && !this._isIncapacitated(target)) {
+      defenseBlocked = target.statusEffects.includes(StatusEffect.RESTRAINED)
+                    || target.statusEffects.includes(StatusEffect.SURPRISED);
 
-      if (isReactive || isOffensive) {
-        // Offensiv gebundener Charakter → reaktiver Halbpool (Split-Pool-Regel)
-        defBreakdown     = this._getDefensePool(target, ti, isOffensive);
+      if (!defenseBlocked) {
+        const prevDefenses       = roundCtx?.defenseCount.get(target.id) ?? 0;
+        const hasAttackedPenalty = (roundCtx?.hasAttacked.has(target.id) && prevDefenses === 0) ? 1 : 0;
+        const rawPenalty         = prevDefenses + hasAttackedPenalty;
+        const celerityReduction  = this.disciplineEngine.getMultiDefensePenaltyReduction(
+          target, target.intent?.activePowers ?? []
+        );
+        const multiDefPenalty = Math.max(0, rawPenalty - celerityReduction);
+
+        const ti     = target.intent ?? { actionType: ActionType.DEFEND };
+        defBreakdown = this._getDefensePool(target, ti, multiDefPenalty, {
+          prevDefenses, hasAttackedPenalty, celerityReduction,
+        });
         defenseRoll      = rollFn(defBreakdown.total, defBreakdown.hungerDice);
         defenseSuccesses = defenseRoll.successes;
+
+        // Verteidigungszähler erhöhen — nächster Angriff gegen dieses Ziel kostet 1 Würfel mehr
+        roundCtx?.defenseCount.set(target.id, prevDefenses + 1);
       }
     }
 
@@ -538,6 +573,7 @@ export class CombatSession {
       damageType,
       effects,
       appliedPowers: [...onHitPowers, ...(atkBreakdown.appliedPowers ?? [])],
+      defenseBlocked,
       breakdown:    { attack: atkBreakdown, defense: defBreakdown },
       narrative:    this._narrative(attacker, target, attackRoll, defenseRoll,
                       netSuccesses, actualDamage, damageType, effects, atkBreakdown,
@@ -624,12 +660,14 @@ export class CombatSession {
   //             fortitude, impaired }}
 
   /**
+   * Berechnet den Verteidigungspool inkl. Mehrfachverteidigungsmalus.
+   *
    * @param {Participant} target
    * @param {Intent}      intent
-   * @param {boolean}     splitPool  true wenn Ziel offensiv gebunden ist
-   *                                 → voller Basispool wird halbiert (min 1)
+   * @param {number}      multiDefPenalty  Kumulativer Malus (bereits durch Celerity reduziert)
+   * @param {object}      [debugInfo]      { prevDefenses, hasAttackedPenalty, celerityReduction }
    */
-  _getDefensePool(target, intent, splitPool = false) {
+  _getDefensePool(target, intent, multiDefPenalty = 0, debugInfo = {}) {
     // Fortitude wirkt NICHT auf den Verteidigungspool — nur auf Schadensreduktion
     const isDodge = intent.actionType === ActionType.DODGE;
 
@@ -649,14 +687,19 @@ export class CombatSession {
 
     const statusPenalty = this.disciplineEngine.getStatusPoolPenalty(target);
     const impaired      = target.statusEffects.includes(StatusEffect.IMPAIRED) ? 2 : 0;
-    const baseTotal     = Math.max(1, attrVal + skillVal - impaired - statusPenalty);
+    const rawTotal      = Math.max(1, attrVal + skillVal - impaired - statusPenalty);
+    const total         = Math.max(1, rawTotal - multiDefPenalty);
+    const hungerDice    = Math.min(target.hunger ?? 0, total);
 
-    // Split-Pool: offensiv gebundener Charakter verteidigt reaktiv mit ½ Pool
-    const total      = splitPool ? Math.max(1, Math.floor(baseTotal / 2)) : baseTotal;
-    const hungerDice = Math.min(target.hunger ?? 0, total);
-
-    return { total, hungerDice, attrName, attrVal, skillName, skillVal,
-             impaired, statusPenalty, splitPool, baseTotal };
+    return {
+      total, hungerDice, attrName, attrVal, skillName, skillVal,
+      impaired, statusPenalty,
+      multiDefPenalty,
+      rawTotal,
+      prevDefenses:      debugInfo.prevDefenses      ?? 0,
+      hasAttackedPenalty: debugInfo.hasAttackedPenalty ?? 0,
+      celerityReduction: debugInfo.celerityReduction  ?? 0,
+    };
   }
 
   // ─── Discipline resolution ────────────────────────────────────────────────

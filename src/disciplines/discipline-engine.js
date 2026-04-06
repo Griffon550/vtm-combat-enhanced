@@ -165,6 +165,25 @@ export class DisciplineEngine {
     return penalty;
   }
 
+  // ─── Mehrfachverteidigungsmalus-Reduktion (Swiftness / Celerity) ─────────
+  //
+  // Gibt an, um wie viel der kumulative Multi-Defense-Malus reduziert wird.
+  // 0 = keine Reduktion, positive Zahl = Würfel gespart.
+
+  getMultiDefensePenaltyReduction(participant, activePowers = []) {
+    let reduction = 0;
+    for (const { power } of this._powers(participant, 'passive', activePowers)) {
+      if (power.effect.multiDefensePenaltyReduction != null) {
+        reduction += this._resolve(
+          power.effect.multiDefensePenaltyReduction,
+          power.discipline,
+          participant,
+        );
+      }
+    }
+    return reduction;
+  }
+
   // ─── Passiver Gesundheitsbonus (Resilience) ───────────────────────────────
 
   getPassiveHealthBonus(participant) {

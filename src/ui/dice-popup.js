@@ -81,7 +81,9 @@ export class DiceRollPopup extends Application {
     if (breakdown.statusPenalty > 0) parts.push(`Status(-${breakdown.statusPenalty})`);
 
     let line = `${parts.join(' + ')} = ${breakdown.total} Würfel`;
-    if (breakdown.splitPool) line += ` (½ gebunden, Basis ${breakdown.baseTotal})`;
+    if (breakdown.multiDefPenalty > 0) {
+      line += ` (−${breakdown.multiDefPenalty} Mehrfachvert., Basis ${breakdown.rawTotal})`;
+    }
     if (breakdown.hungerDice > 0) line += ` (${breakdown.hungerDice}× Hunger)`;
     return line;
   }

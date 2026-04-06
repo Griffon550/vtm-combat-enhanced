@@ -178,6 +178,20 @@ const CELERITY = [
   {
     discipline: 'celerity',
     level:      2,
+    power:      'Swiftness',
+    type:       'passive',
+    activation: 'passive',
+    timing:     'passive',
+    duration:   'sustained',
+    effect: {
+      // Reduziert kumulativen Mehrfachverteidigungsmalus um Celerity-Rating (min 0)
+      multiDefensePenaltyReduction: 'scale_with_rating',
+    },
+    notes: 'Mehrfachverteidigungsmalus −Celerity-Rating pro Runde (min 0). Passiv.',
+  },
+  {
+    discipline: 'celerity',
+    level:      2,
     power:      'Fleetness',
     type:       'modifier',
     activation: 'rouse_check',

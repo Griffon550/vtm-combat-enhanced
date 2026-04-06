@@ -397,9 +397,14 @@ export class CombatModal extends Application {
       if (bd.statusPenalty > 0) parts.push(`Status&thinsp;-${bd.statusPenalty}`);
       for (const pw of (bd.appliedPowers ?? [])) parts.push(`<em class="vtm-power-bonus">${pw}</em>`);
       let line = parts.join(' + ') + ` = ${bd.total}&thinsp;Würfel`;
-      if (bd.splitPool) {
-        line += ` <span class="vtm-split-pool" title="Basispool ${bd.baseTotal}, halbiert weil offensiv gebunden">`;
-        line += `(½&thinsp;gebunden)</span>`;
+      if (bd.multiDefPenalty > 0) {
+        const details = [];
+        if (bd.prevDefenses > 0)       details.push(`${bd.prevDefenses}× Verteidigt`);
+        if (bd.hasAttackedPenalty > 0) details.push('hat angegriffen');
+        if (bd.celerityReduction > 0)  details.push(`Swiftness&thinsp;-${bd.celerityReduction}`);
+        const titleText = `Basispool ${bd.rawTotal} − ${bd.multiDefPenalty} (${details.join(', ')})`;
+        line += ` <span class="vtm-multi-def-penalty" title="${titleText}">`;
+        line += `(−${bd.multiDefPenalty}&thinsp;Mehrfachvert.)</span>`;
       }
       if (bd.hungerDice > 0) line += ` <span class="vtm-hunger-note">(${bd.hungerDice}× Hunger)</span>`;
       return line;
@@ -418,6 +423,15 @@ export class CombatModal extends Application {
       html += `<strong>${r.attackerName}</strong>`;
       if (r.defenderName) html += ` <span class="vtm-vs">→</span> <strong>${r.defenderName}</strong>`;
       html += `</div>`;
+
+      if (r.defenseBlocked) {
+        html += `<div class="vtm-chat-section vtm-defense-blocked">`;
+        html += `<i class="fas fa-ban"></i> Kein Verteidigungswurf`;
+        const reason = r.breakdown?.defense == null
+          ? (r.defenseBlocked ? ' (fixiert / überrascht)' : '')
+          : '';
+        html += reason + `</div>`;
+      }
 
       if (hasRoll) {
         // ── Angriff ──
