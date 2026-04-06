@@ -50,43 +50,41 @@ import { KNOWN_POWER_NAMES } from '../disciplines/discipline-powers.js';
 // ─── wod5e trait lookup ───────────────────────────────────────────────────────
 
 /**
- * Look up a skill/attribute value from a wod5e actor.
+ * Look up a skill or attribute value from a wod5e actor.
  *
- * wod5e stores traits in several ways depending on the fork/version:
- *   A) Items with type "skill" or "attribute":
- *        item.system.skill (or .attribute) = canonical English key
- *        item.system.value = dot rating
- *   B) Direct system fields:
- *        actor.system[traitName].value          e.g. actor.system.dexterity.value
- *        actor.system.abilities[traitName].value
- *        actor.system.attributes[traitName].value
- *   C) Abbreviated keys:
- *        actor.system.dex.value  (some forks shorten attribute names)
+ * wod5e 5.x (SchreckNet) stores all traits DIRECTLY on actor.system:
+ *   Skills:     actor.system.skills.{id}.value     e.g. system.skills.brawl.value
+ *   Attributes: actor.system.attributes.{id}.value e.g. system.attributes.dexterity.value
  *
- * We try all patterns in order.
+ * Fallback: sortedSkills / sortedAttributes arrays ({id, value} entries).
  *
- * @param {Actor} actor
- * @param {string} traitName  e.g. 'strength', 'brawl', 'dexterity'
+ * @param {Actor}  actor
+ * @param {string} traitName  canonical English id e.g. 'strength', 'brawl'
  * @param {number} fallback
  */
-function wod5eSkill(actor, traitName, fallback = 1) {
-  // ── A: item-based lookup (type "skill" OR "attribute") ───────────────────
-  if (actor.items) {
-    const item = actor.items.find(i => {
-      if (i.type !== 'skill' && i.type !== 'attribute') return false;
-      const key = i.system?.skill ?? i.system?.attribute ?? i.name?.toLowerCase();
-      return key === traitName;
-    });
-    if (item?.system?.value != null) return Number(item.system.value);
+function wod5eSkill(actor, traitName, fallback = 0) {
+  const s = actor.system;
+  if (!s) return fallback;
+
+  // 1. system.skills.{id}.value  (Fähigkeiten)
+  const fromSkills = s.skills?.[traitName]?.value;
+  if (fromSkills != null) return Number(fromSkills);
+
+  // 2. system.attributes.{id}.value  (Attribute)
+  const fromAttribs = s.attributes?.[traitName]?.value;
+  if (fromAttribs != null) return Number(fromAttribs);
+
+  // 3. sortedSkills — array of {id, value, …}
+  for (const cat of ['physical', 'social', 'mental']) {
+    const e = s.sortedSkills?.[cat]?.find(x => x.id === traitName);
+    if (e?.value != null) return Number(e.value);
   }
 
-  // ── B/C: direct system field fallbacks ───────────────────────────────────
-  const s = actor.system;
-  const direct =
-    s?.[traitName]?.value                    // actor.system.dexterity.value
-    ?? s?.abilities?.[traitName]?.value      // actor.system.abilities.dexterity.value
-    ?? s?.attributes?.[traitName]?.value;    // actor.system.attributes.dexterity.value
-  if (direct != null) return Number(direct);
+  // 4. sortedAttributes — array of {id, value, …}
+  for (const cat of ['physical', 'social', 'mental']) {
+    const e = s.sortedAttributes?.[cat]?.find(x => x.id === traitName);
+    if (e?.value != null) return Number(e.value);
+  }
 
   return fallback;
 }
@@ -105,27 +103,25 @@ function wod5eSkill(actor, traitName, fallback = 1) {
  * @param {string} discName  lowercase, e.g. 'celerity'
  */
 function wod5eDiscipline(actor, discName) {
-  if (!actor.items) return 0;
+  // 1. system.disciplines.{id}.value  — primärer Pfad in wod5e 5.x
+  const direct = actor.system?.disciplines?.[discName]?.value;
+  if (direct != null) return Number(direct);
 
-  // Pattern A: dedicated discipline item
-  const discItem = actor.items.find(
-    i => i.type === 'discipline' &&
-         (i.system?.discipline?.toLowerCase() === discName ||
-          i.name?.toLowerCase() === discName)
-  );
-  if (discItem) return discItem.system?.value ?? discItem.system?.level ?? 0;
+  // 2. Flat system field (ältere Forks)
+  const flat = _get(actor, `system.disciplines.${discName}`);
+  if (typeof flat === 'number') return flat;
 
-  // Pattern B: count of power items for this discipline
-  const powers = actor.items.filter(
-    i => i.type === 'power' &&
-         i.system?.discipline?.toLowerCase() === discName
-  );
-  if (powers.length > 0) return powers.length;
+  // 3. Dedicated discipline item (andere Systeme)
+  if (actor.items) {
+    const discItem = actor.items.find(
+      i => i.type === 'discipline' &&
+           (i.system?.discipline?.toLowerCase() === discName ||
+            i.name?.toLowerCase()               === discName)
+    );
+    if (discItem) return Number(discItem.system?.value ?? discItem.system?.level ?? 0);
+  }
 
-  // Fallback: flat system field (some community forks)
-  return _get(actor, `system.disciplines.${discName}.value`) ??
-         _get(actor, `system.disciplines.${discName}`) ??
-         0;
+  return 0;
 }
 
 /**
@@ -182,17 +178,17 @@ const FIELD_MAP = {
   // ── Hunger (VTM only) ──────────────────────────────────────────────────────
   hunger: a => Number(a.system?.hunger?.value ?? 0),
 
-  // ── Attributes — wod5e stores these as items of type "skill" ───────────────
-  strength:     a => wod5eSkill(a, 'strength',     2),
-  dexterity:    a => wod5eSkill(a, 'dexterity',    2),
-  wits:         a => wod5eSkill(a, 'wits',         2),
-  stamina:      a => wod5eSkill(a, 'stamina',       2),
-  charisma:     a => wod5eSkill(a, 'charisma',      2),
-  manipulation: a => wod5eSkill(a, 'manipulation',  2),
-  resolve:      a => wod5eSkill(a, 'resolve',       2),
-  composure:    a => wod5eSkill(a, 'composure',     2),
+  // ── Attributes — system.attributes.{id}.value ──────────────────────────────
+  strength:     a => wod5eSkill(a, 'strength',     1),
+  dexterity:    a => wod5eSkill(a, 'dexterity',    1),
+  wits:         a => wod5eSkill(a, 'wits',         1),
+  stamina:      a => wod5eSkill(a, 'stamina',      1),
+  charisma:     a => wod5eSkill(a, 'charisma',     1),
+  manipulation: a => wod5eSkill(a, 'manipulation', 1),
+  resolve:      a => wod5eSkill(a, 'resolve',      1),
+  composure:    a => wod5eSkill(a, 'composure',    1),
 
-  // ── Skills — same item-based storage ───────────────────────────────────────
+  // ── Skills — system.skills.{id}.value ──────────────────────────────────────
   brawl:     a => wod5eSkill(a, 'brawl',     0),
   melee:     a => wod5eSkill(a, 'melee',     0),
   firearms:  a => wod5eSkill(a, 'firearms',  0),
