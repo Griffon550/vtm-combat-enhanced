@@ -365,11 +365,108 @@ export class CombatModal extends Application {
 
   async _postChat(results) {
     if (!results?.length) return;
-    const rows = results.map(r => `<li>${r.narrative}</li>`).join('');
-    await ChatMessage.create({
-      content: `<div class="vtm-chat-results"><h3>Runde ${this.session.round}</h3><ul>${rows}</ul></div>`,
-      speaker: { alias: 'VTM Combat Engine' },
-    });
+
+    const round = this.session.round;
+
+    // ── Hilfsfunktionen ──────────────────────────────────────────────────────
+    const dieCls = (v, hunger) => {
+      if (v === 10) return hunger ? 'die-hunger-crit' : 'die-crit';
+      if (v === 1 && hunger) return 'die-bestial';
+      if (v >= 6) return 'die-success';
+      return 'die-fail';
+    };
+
+    const diceTray = (normalRolls, hungerRolls, extraCls = '') => {
+      if (!normalRolls?.length && !hungerRolls?.length) return '';
+      const dice = [
+        ...(normalRolls ?? []).map(v =>
+          `<span class="vtm-die ${dieCls(v, false)}" title="Normaler Würfel: ${v}">${v}</span>`),
+        ...(hungerRolls ?? []).map(v =>
+          `<span class="vtm-die vtm-hunger-die ${dieCls(v, true)}" title="Hunger-Würfel: ${v}">${v}</span>`),
+      ];
+      return `<div class="vtm-dice-tray ${extraCls}">${dice.join('')}</div>`;
+    };
+
+    const poolLine = (bd) => {
+      if (!bd) return '';
+      const parts = [
+        `<strong>${bd.attrName}</strong>&thinsp;${bd.attrVal}`,
+        `<strong>${bd.skillName}</strong>&thinsp;${bd.skillVal}`,
+      ];
+      if (bd.impaired      > 0) parts.push(`Beeinträchtigt&thinsp;-${bd.impaired}`);
+      if (bd.statusPenalty > 0) parts.push(`Status&thinsp;-${bd.statusPenalty}`);
+      for (const pw of (bd.appliedPowers ?? [])) parts.push(`<em class="vtm-power-bonus">${pw}</em>`);
+      return parts.join(' + ')
+        + ` = ${bd.total}&thinsp;Würfel`
+        + (bd.hungerDice > 0
+            ? ` <span class="vtm-hunger-note">(${bd.hungerDice}× Hunger)</span>`
+            : '');
+    };
+
+    // ── Je Aktion eine eigene Chat-Nachricht ─────────────────────────────────
+    for (const r of results) {
+      const atkBd   = r.breakdown?.attack;
+      const defBd   = r.breakdown?.defense;
+      const hasRoll = !!r.attackRoll;
+
+      let html = `<div class="vtm-chat-result">`;
+
+      // Kopfzeile
+      html += `<div class="vtm-chat-actors">`;
+      html += `<strong>${r.attackerName}</strong>`;
+      if (r.defenderName) html += ` <span class="vtm-vs">→</span> <strong>${r.defenderName}</strong>`;
+      html += `</div>`;
+
+      if (hasRoll) {
+        // ── Angriff ──
+        html += `<div class="vtm-chat-section">`;
+        html += `<div class="vtm-pool-breakdown"><i class="fas fa-dice-d10"></i> ${poolLine(atkBd)}</div>`;
+        html += diceTray(r.attackRoll.normalRolls, r.attackRoll.hungerRolls);
+
+        let atkLine = `<strong>${r.attackRoll.successes}</strong>&thinsp;Erfolge`;
+        if ((atkBd?.autoSuccesses ?? 0) > 0) atkLine += ` +${atkBd.autoSuccesses}&thinsp;Auto`;
+        if (r.attackRoll.critPairs)      atkLine += ` · <span class="vtm-crit-label">${r.attackRoll.critPairs}× Krit</span>`;
+        if (r.attackRoll.messyCritical)  atkLine += ' <span class="vtm-messy-label">💀 Messy Critical</span>';
+        if (r.attackRoll.bestialFailure) atkLine += ' <span class="vtm-bestial-label">⚠ Bestial Failure</span>';
+        html += `<div class="vtm-roll-summary">${atkLine}</div>`;
+        html += `</div>`;
+
+        // ── Verteidigung ──
+        if (r.defenseRoll) {
+          html += `<div class="vtm-chat-section vtm-defense-block">`;
+          html += `<div class="vtm-pool-breakdown"><i class="fas fa-shield-alt"></i> ${poolLine(defBd)}</div>`;
+          html += diceTray(r.defenseRoll.normalRolls, r.defenseRoll.hungerRolls, 'vtm-def-tray');
+          html += `<div class="vtm-roll-summary vtm-def-summary"><strong>${r.defenseRoll.successes}</strong>&thinsp;Erfolge</div>`;
+          html += `</div>`;
+        }
+
+        // ── Netto-Ergebnis ──
+        const isAgg  = r.damageType === 'aggravated';
+        const dmgLbl = isAgg ? 'aggraviiert' : 'oberflächlich';
+        html += `<div class="vtm-net-result ${isAgg ? 'vtm-aggravated' : ''}">`;
+        if (r.netSuccesses > 0) {
+          html += `${r.netSuccesses}&thinsp;netto → <strong>${r.damage}</strong>&thinsp;`;
+          html += `<span class="vtm-dmg-type">${dmgLbl} Schaden</span>`;
+        } else {
+          html += `<span class="vtm-blocked">Angriff geblockt</span>`;
+        }
+        if (r.effects?.length) {
+          html += `<div class="vtm-effects">${r.effects.map(e => `<span class="vtm-effect-tag">${e}</span>`).join('')}</div>`;
+        }
+        html += `</div>`;
+
+      } else {
+        // Pass / Disziplin / Sonderaktion ohne Würfelwurf
+        html += `<div class="vtm-chat-narrative vtm-muted">${r.narrative}</div>`;
+      }
+
+      html += `</div>`; // .vtm-chat-result
+
+      await ChatMessage.create({
+        content: html,
+        speaker: { alias: `Runde ${round}` },
+      });
+    }
   }
 
   onActorUpdate(actor, _changes) {
