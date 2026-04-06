@@ -523,6 +523,23 @@ export class CombatSession {
     return s.trim();
   }
 
+  // ─── State sync ───────────────────────────────────────────────────────────
+
+  /**
+   * Replace internal state from a plain object (received via socket).
+   * Used on player clients to mirror the GM's session.
+   * Does NOT fire onUpdate to avoid echo loops.
+   * @param {SessionState} state
+   */
+  loadState(state) {
+    this.phase        = state.phase;
+    this.round        = state.round;
+    this.log          = state.log ?? [];
+    this.participants = new Map(
+      (state.participants ?? []).map(p => [p.id, { ...p }])
+    );
+  }
+
   // ─── State snapshot ───────────────────────────────────────────────────────
 
   /**

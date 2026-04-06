@@ -1,21 +1,14 @@
 /**
- * Combat Modal
- * ─────────────────────────────────────────────────────────────────────────────
- * Main UI window. Extends Foundry's Application.
+ * Combat Modal — mit Socket-Sync für GM + Spieler
  *
- * Layout:
- *   [Players | Action area | Enemies]
- *   [Initiative order strip]
- *   [Combat log]
- *
- * Drag & Drop:
- *   Actors from the Actor Directory, Tokens on canvas, or Combatants from the
- *   Foundry combat tracker can be dropped onto either side.
+ * GM-Client:     besitzt die echte CombatSession, sendet State-Updates per Socket
+ * Spieler-Client: empfängt State-Updates, kann nur eigene Charaktere bedienen
  */
 
 import { CombatSession, CombatPhase, ActionType } from '../combat-engine.js';
-import { createAdapter } from '../adapters/actor-adapter.js';
-import { ActionDialog }  from './action-dialog.js';
+import { createAdapter }  from '../adapters/actor-adapter.js';
+import { ActionDialog }   from './action-dialog.js';
+import { emitSocket }     from '../module.js';
 
 const MODULE_ID = 'vtm-combat-enhanced';
 const TEMPLATE  = `modules/${MODULE_ID}/templates/combat-modal.html`;
@@ -24,20 +17,19 @@ export class CombatModal extends Application {
   constructor(options = {}) {
     super(options);
 
-    /** @type {CombatSession} */
-    this.session = new CombatSession();
+    this._isGM     = game.user.isGM;
+    this.session   = new CombatSession();
+    this._adapters = new Map(); // actorId → ActorAdapter (GM only)
 
-    // Re-render on every engine state change
-    this.session.onUpdate = () => this.render(false);
-
-    /**
-     * Live map of actorId → ActorAdapter so we can write damage back.
-     * @type {Map<string, import('../adapters/actor-adapter.js').ActorAdapter>}
-     */
-    this._adapters = new Map();
+    // GM: nach jedem State-Update → alle Clients benachrichtigen
+    if (this._isGM) {
+      this.session.onUpdate = (state) => {
+        emitSocket('stateUpdate', state);
+        // re-render eigenes Fenster
+        this.render(false);
+      };
+    }
   }
-
-  // ─── Foundry Application overrides ────────────────────────────────────────
 
   static get defaultOptions() {
     return foundry.utils.mergeObject(super.defaultOptions, {
@@ -54,41 +46,50 @@ export class CombatModal extends Application {
   // ─── Template data ─────────────────────────────────────────────────────────
 
   getData() {
-    const state    = this.session.getState();
-    const players  = state.participants.filter(p => p.side === 'players');
-    const enemies  = state.participants.filter(p => p.side === 'enemies');
-    const order    = this.session.getInitiativeOrder();
+    const state   = this.session.getState();
+    const isGM    = this._isGM;
+
+    // Füge Eigentümer-Flag zu jedem Teilnehmer hinzu
+    const enrich = (p) => ({
+      ...p,
+      isOwned:      isGM || !!(game.actors.get(p.id)?.isOwner),
+      canSetIntent: (isGM || !!(game.actors.get(p.id)?.isOwner)) &&
+                    state.phase === CombatPhase.INTENT &&
+                    !p.intent,
+      intentSet:    !!p.intent,
+    });
+
+    const players = state.participants.filter(p => p.side === 'players').map(enrich);
+    const enemies = state.participants.filter(p => p.side === 'enemies').map(enrich);
+    const order   = this.session.getInitiativeOrder().map(enrich);
 
     return {
-      phase:          state.phase,
-      phaseLabel:     this._phaseLabel(state.phase),
-      round:          state.round,
+      isGM,
+      phase:           state.phase,
+      phaseLabel:      this._phaseLabel(state.phase),
+      round:           state.round,
       players,
       enemies,
       initiativeOrder: order,
-      log:            state.log.slice(-15).reverse(), // newest first
+      log:             state.log.slice(-15).reverse(),
 
-      // Button visibility
-      canStartIntent: [CombatPhase.SETUP, CombatPhase.STATE_UPDATE, CombatPhase.DONE].includes(state.phase),
-      canSetIntents:  state.phase === CombatPhase.INTENT,
-      canResolve:     state.phase === CombatPhase.INTENT && this.session.allIntentsSet(),
-      canEndRound:    state.phase === CombatPhase.STATE_UPDATE,
-      isSetup:        state.phase === CombatPhase.SETUP,
-
-      // Phases enum for template
-      phases: CombatPhase,
+      canStartIntent:  isGM && [CombatPhase.SETUP, CombatPhase.STATE_UPDATE, CombatPhase.DONE].includes(state.phase),
+      canSetIntents:   state.phase === CombatPhase.INTENT,
+      canResolve:      isGM && state.phase === CombatPhase.INTENT && this.session.allIntentsSet(),
+      canEndRound:     isGM && state.phase === CombatPhase.STATE_UPDATE,
+      isSetup:         state.phase === CombatPhase.SETUP,
+      phases:          CombatPhase,
     };
   }
 
   _phaseLabel(phase) {
-    const map = {
-      [CombatPhase.SETUP]:        'Setup — Drop actors onto each side',
-      [CombatPhase.INTENT]:       'Intent Phase — All participants choose actions',
-      [CombatPhase.RESOLUTION]:   'Resolving…',
-      [CombatPhase.STATE_UPDATE]: 'State Update — Review results',
-      [CombatPhase.DONE]:         'Combat ended',
-    };
-    return map[phase] ?? phase;
+    return {
+      [CombatPhase.SETUP]:        'Setup — Actors per Drag & Drop hinzufügen',
+      [CombatPhase.INTENT]:       'Intent Phase — Alle wählen ihre Aktion',
+      [CombatPhase.RESOLUTION]:   'Auflösung läuft…',
+      [CombatPhase.STATE_UPDATE]: 'Ergebnisse — Runde beenden wenn bereit',
+      [CombatPhase.DONE]:         'Kampf beendet',
+    }[phase] ?? phase;
   }
 
   // ─── Listeners ────────────────────────────────────────────────────────────
@@ -96,256 +97,166 @@ export class CombatModal extends Application {
   activateListeners(html) {
     super.activateListeners(html);
 
-    // ── Phase controls ──────────────────────────────────────────────────────
-    html.find('[data-action="start-intent"]').on('click', () => {
-      this.session.startIntentPhase();
-    });
+    // GM-only Phasen-Buttons
+    if (this._isGM) {
+      html.find('[data-action="start-intent"]').on('click', () => this.session.startIntentPhase());
+      html.find('[data-action="resolve-all"]').on('click',  () => this._onResolveAll());
+      html.find('[data-action="end-round"]').on('click',    () => this.session.endRound());
+      html.find('[data-action="roll-all-initiative"]').on('click', () => this.session.rollAllInitiative());
+      html.find('[data-action="roll-initiative"]').on('click', ev => {
+        const id = this._actorId(ev);
+        if (id) this.session.rollInitiative(id);
+      });
+      html.find('[data-action="remove-participant"]').on('click', ev => {
+        const id = this._actorId(ev);
+        if (id) { this.session.removeParticipant(id); this._adapters.delete(id); }
+      });
+      html.find('[data-action="move-side"]').on('click', ev => {
+        const id = this._actorId(ev);
+        if (!id) return;
+        const p = this.session.getParticipant(id);
+        if (p) { p.side = p.side === 'players' ? 'enemies' : 'players'; this.session._notify(); }
+      });
 
-    html.find('[data-action="resolve-all"]').on('click', () => {
-      this._onResolveAll();
-    });
+      // Drag & Drop nur für GM
+      this._bindDropZone(html.find('.vtm-players-zone')[0], 'players');
+      this._bindDropZone(html.find('.vtm-enemies-zone')[0], 'enemies');
+    }
 
-    html.find('[data-action="end-round"]').on('click', () => {
-      this.session.endRound();
-    });
-
-    html.find('[data-action="roll-all-initiative"]').on('click', () => {
-      this.session.rollAllInitiative();
-    });
-
-    // ── Per-character controls ──────────────────────────────────────────────
-    html.find('[data-action="roll-initiative"]').on('click', ev => {
-      const id = this._actorIdFromEvent(ev);
-      if (id) this.session.rollInitiative(id);
-    });
-
+    // Aktion wählen — für Eigentümer (GM + Spieler)
     html.find('[data-action="choose-action"]').on('click', ev => {
-      const id = this._actorIdFromEvent(ev);
+      const id = this._actorId(ev);
       if (id) this._openActionDialog(id);
     });
-
-    html.find('[data-action="remove-participant"]').on('click', ev => {
-      const id = this._actorIdFromEvent(ev);
-      if (id) {
-        this.session.removeParticipant(id);
-        this._adapters.delete(id);
-      }
-    });
-
-    html.find('[data-action="move-side"]').on('click', ev => {
-      const id = this._actorIdFromEvent(ev);
-      if (!id) return;
-      const p = this.session.getParticipant(id);
-      if (p) {
-        p.side = p.side === 'players' ? 'enemies' : 'players';
-        this.session._notify();
-      }
-    });
-
-    // ── Drag & Drop zones ───────────────────────────────────────────────────
-    this._bindDropZone(html.find('.vtm-players-zone')[0], 'players');
-    this._bindDropZone(html.find('.vtm-enemies-zone')[0], 'enemies');
   }
 
-  _actorIdFromEvent(ev) {
+  _actorId(ev) {
     return ev.currentTarget.closest('[data-actor-id]')?.dataset?.actorId ?? null;
   }
 
-  // ─── Drag & Drop ──────────────────────────────────────────────────────────
+  // ─── Drag & Drop (nur GM) ─────────────────────────────────────────────────
 
-  /**
-   * Bind all D&D events on a drop zone element.
-   * @param {HTMLElement|undefined} el
-   * @param {'players'|'enemies'}   side
-   */
   _bindDropZone(el, side) {
     if (!el) return;
-
-    el.addEventListener('dragover', ev => {
-      ev.preventDefault();
-      ev.dataTransfer.dropEffect = 'copy';
-      el.classList.add('vtm-drop-active');
-    });
-
-    el.addEventListener('dragenter', ev => {
-      ev.preventDefault();
-      el.classList.add('vtm-drop-active');
-    });
-
-    el.addEventListener('dragleave', ev => {
-      // Only remove highlight when leaving the zone itself, not a child element
-      if (!el.contains(ev.relatedTarget)) {
-        el.classList.remove('vtm-drop-active');
-      }
-    });
-
-    el.addEventListener('drop', ev => {
-      ev.preventDefault();
-      el.classList.remove('vtm-drop-active');
-      this._handleDrop(ev, side);
-    });
+    el.addEventListener('dragover',  ev => { ev.preventDefault(); el.classList.add('vtm-drop-active'); });
+    el.addEventListener('dragenter', ev => { ev.preventDefault(); el.classList.add('vtm-drop-active'); });
+    el.addEventListener('dragleave', ev => { if (!el.contains(ev.relatedTarget)) el.classList.remove('vtm-drop-active'); });
+    el.addEventListener('drop', ev => { ev.preventDefault(); el.classList.remove('vtm-drop-active'); this._handleDrop(ev, side); });
   }
 
-  /**
-   * Process a drop event and extract a Foundry Actor.
-   * Supports: Actor, Token, Combatant drag types.
-   */
   async _handleDrop(event, side) {
     let data;
-    try {
-      data = JSON.parse(event.dataTransfer.getData('text/plain'));
-    } catch {
-      ui.notifications.warn('VTM Combat: Could not parse dropped data.');
-      return;
-    }
+    try { data = JSON.parse(event.dataTransfer.getData('text/plain')); }
+    catch { ui.notifications.warn('VTM Combat: Ungültige Drop-Daten.'); return; }
 
     let actor = null;
+    if      (data.type === 'Actor')      actor = data.uuid ? await fromUuid(data.uuid) : game.actors.get(data.id);
+    else if (data.type === 'Token')      actor = canvas?.tokens?.get(data.id)?.actor;
+    else if (data.type === 'Combatant')  actor = game.combat?.combatants?.get(data.id)?.actor;
 
-    if (data.type === 'Actor') {
-      // Dropped from Actor Directory
-      actor = data.uuid
-        ? await fromUuid(data.uuid)
-        : game.actors.get(data.id);
-    } else if (data.type === 'Token') {
-      // Dropped from canvas token
-      const token = canvas?.tokens?.get(data.id) ?? canvas?.tokens?.placeables?.find(t => t.id === data.id);
-      actor = token?.actor ?? null;
-    } else if (data.type === 'Combatant') {
-      // Dropped from Foundry combat tracker
-      const combatant = game.combat?.combatants?.get(data.id);
-      actor = combatant?.actor ?? null;
-    }
-
-    if (!actor) {
-      ui.notifications.warn(`VTM Combat: Could not resolve actor from dropped data (type: ${data.type}).`);
-      return;
-    }
-
+    if (!actor) { ui.notifications.warn(`VTM Combat: Actor nicht gefunden (type: ${data.type}).`); return; }
     this._addActor(actor, side);
   }
 
-  /**
-   * Add a Foundry Actor to the session on the given side.
-   * @param {Actor}               actor
-   * @param {'players'|'enemies'} side
-   */
   _addActor(actor, side) {
     if (this.session.participants.has(actor.id)) {
-      ui.notifications.info(`${actor.name} is already in combat.`);
-      return;
+      ui.notifications.info(`${actor.name} ist bereits im Kampf.`); return;
     }
-
     const adapter = createAdapter(actor);
     this._adapters.set(actor.id, adapter);
-
-    const data = adapter.toPlainObject();
-    this.session.addParticipant(data, side);
-
-    ui.notifications.info(`${actor.name} added to ${side === 'players' ? 'Players' : 'Enemies'}.`);
+    this.session.addParticipant(adapter.toPlainObject(), side);
+    ui.notifications.info(`${actor.name} zu ${side === 'players' ? 'Spielern' : 'Gegnern'} hinzugefügt.`);
   }
 
-  // ─── Action dialog ────────────────────────────────────────────────────────
+  // ─── Aktionsdialog ────────────────────────────────────────────────────────
 
   _openActionDialog(actorId) {
     const participant = this.session.getParticipant(actorId);
     if (!participant) return;
 
     if (this.session.phase !== CombatPhase.INTENT) {
-      ui.notifications.warn('Actions can only be set during the Intent phase.');
-      return;
+      ui.notifications.warn('Aktionen können nur in der Intent-Phase gesetzt werden.'); return;
     }
 
-    const targets = Array.from(this.session.participants.values())
-      .filter(p => p.id !== actorId);
+    // Prüfe Berechtigung
+    if (!this._isGM && !game.actors.get(actorId)?.isOwner) {
+      ui.notifications.warn('Du kannst nur Aktionen für deine eigenen Charaktere wählen.'); return;
+    }
 
-    const dialog = new ActionDialog({
+    const targets = Array.from(this.session.participants.values()).filter(p => p.id !== actorId);
+
+    new ActionDialog({
       participant,
       targets,
       onConfirm: (intent) => {
-        try {
-          this.session.setIntent(actorId, intent);
-        } catch (err) {
-          ui.notifications.error(err.message);
+        if (this._isGM) {
+          // GM setzt Intent direkt
+          try { this.session.setIntent(actorId, intent); }
+          catch (e) { ui.notifications.error(e.message); }
+        } else {
+          // Spieler schickt Intent per Socket an GM
+          emitSocket('setIntent', { participantId: actorId, intent });
         }
       },
-    });
-    dialog.render(true);
+    }).render(true);
   }
 
-  // ─── Resolution ───────────────────────────────────────────────────────────
+  // ─── Resolution (nur GM) ──────────────────────────────────────────────────
 
   async _onResolveAll() {
+    if (!this._isGM) return;
     if (!this.session.allIntentsSet()) {
-      ui.notifications.warn('Not all active participants have set their intent.');
-      return;
+      ui.notifications.warn('Noch nicht alle Teilnehmer haben ihre Aktion gewählt.'); return;
     }
 
     this.session.startResolutionPhase();
     const results = this.session.resolveAll();
 
-    // Write damage back to Foundry Actor documents
-    for (const result of results) {
-      if (result.defenderId && result.damage > 0) {
-        const adapter = this._adapters.get(result.defenderId);
+    for (const r of results) {
+      if (r.defenderId && r.damage > 0) {
+        const adapter = this._adapters.get(r.defenderId);
         if (adapter) {
-          await adapter.applyDamage(result.damage, result.damageType);
-          // Refresh in-session snapshot from live actor
-          this._syncParticipantFromActor(result.defenderId);
+          await adapter.applyDamage(r.damage, r.damageType);
+          this._syncParticipantFromActor(r.defenderId);
         }
       }
     }
 
-    await this._postChatResults(results);
+    await this._postChat(results);
     this.render(false);
   }
 
-  // ─── Foundry sync helpers ─────────────────────────────────────────────────
+  // ─── Socket-Sync (Spieler-Seite) ──────────────────────────────────────────
 
   /**
-   * Pull fresh data from the live Foundry Actor into the session participant.
+   * Empfängt einen State-Snapshot vom GM und aktualisiert das Modal.
+   * Wird von module.js aufgerufen wenn eine 'stateUpdate'-Nachricht ankommt.
+   * @param {SessionState} state
    */
-  _syncParticipantFromActor(actorId) {
-    const adapter = this._adapters.get(actorId);
-    const p       = this.session.getParticipant(actorId);
-    if (!adapter || !p) return;
-
-    const fresh   = adapter.toPlainObject();
-    Object.assign(p, {
-      health:        fresh.health,
-      willpower:     fresh.willpower,
-      hunger:        fresh.hunger,
-      statusEffects: fresh.statusEffects,
-    });
+  _syncFromState(state) {
+    this.session.loadState(state);
+    this.render(false);
   }
 
-  // ─── Chat output ──────────────────────────────────────────────────────────
+  // ─── Hilfsmethoden ───────────────────────────────────────────────────────
 
-  async _postChatResults(results) {
+  _syncParticipantFromActor(actorId) {
+    const adapter = this._adapters.get(actorId);
+    const p = this.session.getParticipant(actorId);
+    if (!adapter || !p) return;
+    const fresh = adapter.toPlainObject();
+    Object.assign(p, { health: fresh.health, willpower: fresh.willpower, hunger: fresh.hunger, statusEffects: fresh.statusEffects });
+  }
+
+  async _postChat(results) {
     if (!results?.length) return;
-
-    const rows = results.map(r =>
-      `<li class="vtm-result-entry">${r.narrative}</li>`
-    ).join('');
-
-    const content = `
-      <div class="vtm-chat-results">
-        <h3>Round ${this.session.round} — Combat Results</h3>
-        <ul>${rows}</ul>
-      </div>`;
-
+    const rows = results.map(r => `<li>${r.narrative}</li>`).join('');
     await ChatMessage.create({
-      content,
+      content: `<div class="vtm-chat-results"><h3>Runde ${this.session.round}</h3><ul>${rows}</ul></div>`,
       speaker: { alias: 'VTM Combat Engine' },
     });
   }
 
-  // ─── Hook into live actor updates ────────────────────────────────────────
-
-  /**
-   * Call this from the updateActor hook to keep session in sync.
-   * @param {Actor}  actor
-   * @param {Object} _changes
-   */
   onActorUpdate(actor, _changes) {
     if (!this.session.participants.has(actor.id)) return;
     this._syncParticipantFromActor(actor.id);

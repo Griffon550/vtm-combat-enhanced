@@ -1,37 +1,96 @@
 /**
  * vtm-combat-enhanced — Module Entry Point
- * ─────────────────────────────────────────────────────────────────────────────
- * Registers Foundry hooks, adds the toolbar button, and wires up live actor
- * sync so the combat modal stays up to date when actors change elsewhere.
  */
 
-import { CombatModal }        from './ui/combat-modal.js';
-import { registerHelpers }   from './ui/handlebars-helpers.js';
+import { CombatModal }     from './ui/combat-modal.js';
+import { registerHelpers } from './ui/handlebars-helpers.js';
 
-const MODULE_ID = 'vtm-combat-enhanced';
+const MODULE_ID    = 'vtm-combat-enhanced';
+const SOCKET_EVENT = `module.${MODULE_ID}`;
 
-// Module-level singleton so all hooks share the same instance.
 let _combatModal = null;
 
-function getOrCreateModal() {
-  if (!_combatModal || _combatModal._state === Application.RENDER_STATES.CLOSED) {
-    _combatModal = new CombatModal();
-  }
+function openModal() {
+  const closed = _combatModal === null || _combatModal.rendered === false;
+  if (closed) _combatModal = new CombatModal();
+  _combatModal.render(true);
   return _combatModal;
 }
 
-// ─── Foundry: init ────────────────────────────────────────────────────────────
+// ─── Socket ───────────────────────────────────────────────────────────────────
+
+/**
+ * Emit a socket message to all OTHER clients.
+ * @param {string} type
+ * @param {Object} payload
+ */
+export function emitSocket(type, payload = {}) {
+  game.socket.emit(SOCKET_EVENT, { type, payload });
+}
+
+function _handleSocket(msg) {
+  switch (msg.type) {
+
+    // GM tells everyone to open the modal
+    case 'openModal':
+      if (!game.user.isGM) openModal();
+      break;
+
+    // GM tells everyone to close the modal
+    case 'closeModal':
+      if (!game.user.isGM) _combatModal?.close();
+      break;
+
+    // GM broadcasts full session state — players update their view
+    case 'stateUpdate':
+      if (!game.user.isGM) {
+        const modal = _combatModal ?? openModal();
+        modal._syncFromState(msg.payload);
+      }
+      break;
+
+    // Player sends their intent to the GM
+    case 'setIntent':
+      if (game.user.isGM && _combatModal) {
+        const { participantId, intent } = msg.payload;
+        try {
+          _combatModal.session.setIntent(participantId, intent);
+          // session.onUpdate will broadcast the new state automatically
+        } catch (e) {
+          console.warn(`${MODULE_ID} | setIntent from player failed:`, e.message);
+        }
+      }
+      break;
+  }
+}
+
+// ─── init ─────────────────────────────────────────────────────────────────────
 
 Hooks.once('init', () => {
-  console.log(`${MODULE_ID} | Initializing VTM Combat Enhanced`);
+  console.log(`${MODULE_ID} | Initializing (Foundry ${game.version})`);
 
-  // Register Handlebars helpers before any template renders
   registerHelpers();
 
-  // Register any module settings here
+  loadTemplates([
+    `modules/${MODULE_ID}/templates/combat-modal.html`,
+    `modules/${MODULE_ID}/templates/action-dialog.html`,
+    `modules/${MODULE_ID}/templates/partials/participant-card.html`,
+  ]);
+
+  // Socket listener
+  game.socket.on(SOCKET_EVENT, _handleSocket);
+
+  // Keybinding Alt+V
+  game.keybindings.register(MODULE_ID, 'openCombat', {
+    name:     'Open VTM Combat Enhanced',
+    hint:     'Opens the VTM Combat Enhanced modal',
+    editable: [{ key: 'KeyV', modifiers: ['Alt'] }],
+    onDown:   () => { openModal(); return true; },
+  });
+
   game.settings.register(MODULE_ID, 'autoSyncActors', {
-    name: 'Auto-sync actors on update',
-    hint: 'Refresh combat modal when Foundry actors are updated.',
+    name:    'Auto-sync actors on update',
+    hint:    'Refresh combat modal when Foundry actors are updated.',
     scope:   'world',
     config:  true,
     type:    Boolean,
@@ -39,57 +98,67 @@ Hooks.once('init', () => {
   });
 });
 
-// ─── Foundry: ready ───────────────────────────────────────────────────────────
+// ─── ready ────────────────────────────────────────────────────────────────────
 
 Hooks.once('ready', () => {
   console.log(`${MODULE_ID} | Ready`);
-});
 
-// ─── Toolbar button ───────────────────────────────────────────────────────────
-
-Hooks.on('getSceneControlButtons', (controls) => {
-  // Add a button to the token controls group
-  const tokenControls = controls.find(c => c.name === 'token');
-  if (!tokenControls) return;
-
-  tokenControls.tools.push({
-    name:    'vtm-combat',
-    title:   'VTM Combat Enhanced',
-    icon:    'fas fa-khanda',
-    visible: true,
-    onClick: () => getOrCreateModal().render(true),
-    button:  true,
-  });
-});
-
-// ─── Actor update sync ────────────────────────────────────────────────────────
-
-Hooks.on('updateActor', (actor, changes, _options, _userId) => {
-  if (!game.settings.get(MODULE_ID, 'autoSyncActors')) return;
-  if (!_combatModal) return;
-
-  _combatModal.onActorUpdate(actor, changes);
-});
-
-// ─── Combat tracker integration (optional) ───────────────────────────────────
-
-Hooks.on('createCombat', (_combat, _options, _userId) => {
-  // Could pre-populate the modal from the Foundry combat tracker here
-  console.log(`${MODULE_ID} | Combat created — open VTM Combat Enhanced to use the enhanced system.`);
-});
-
-Hooks.on('updateCombat', (_combat, _changes, _options, _userId) => {
-  // If desired, sync initiative changes back from the tracker
-});
-
-// ─── Public API (accessible as game.modules.get('vtm-combat-enhanced').api) ──
-
-Hooks.once('ready', () => {
   const mod = game.modules.get(MODULE_ID);
   if (mod) {
     mod.api = {
-      openCombatModal: () => getOrCreateModal().render(true),
-      getModal:        () => _combatModal,
+      open:       openModal,
+      getModal:   () => _combatModal,
+      emitSocket,
     };
   }
+
+  // Chat command /vtmcombat
+  Hooks.on('chatMessage', (_log, message) => {
+    if (message.trim().toLowerCase() !== '/vtmcombat') return true;
+    openModal();
+    // If GM opens via chat, also open for players
+    if (game.user.isGM) emitSocket('openModal');
+    return false;
+  });
+});
+
+// ─── Scene controls ───────────────────────────────────────────────────────────
+
+Hooks.on('getSceneControlButtons', (controls) => {
+  if (Array.isArray(controls)) {
+    const group = controls.find(c => c.name === 'token');
+    if (group) {
+      group.tools.push({
+        name: 'vtm-combat', title: 'VTM Combat Enhanced',
+        icon: 'fas fa-khanda', visible: true, button: true,
+        onClick: () => {
+          openModal();
+          if (game.user.isGM) emitSocket('openModal');
+        },
+      });
+    }
+  } else if (controls && typeof controls === 'object') {
+    const group = controls.token ?? controls.tokens ?? Object.values(controls)[0];
+    if (group?.tools) {
+      group.tools['vtm-combat'] = {
+        name: 'vtm-combat', title: 'VTM Combat Enhanced',
+        icon: 'fas fa-khanda', visible: true, button: true,
+        onChange: () => {
+          openModal();
+          if (game.user.isGM) emitSocket('openModal');
+        },
+      };
+    }
+  }
+});
+
+// ─── Actor sync ───────────────────────────────────────────────────────────────
+
+Hooks.on('updateActor', (actor, changes) => {
+  if (!game.settings.get(MODULE_ID, 'autoSyncActors')) return;
+  _combatModal?.onActorUpdate(actor, changes);
+});
+
+Hooks.on('createCombat', () => {
+  console.log(`${MODULE_ID} | Alt+V oder /vtmcombat zum Öffnen.`);
 });

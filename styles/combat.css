@@ -443,6 +443,14 @@
 /* ── Muted text ─────────────────────────────────────────────────────────────── */
 .vtm-muted { color: var(--vtm-text-muted); font-size: 0.8rem; font-style: italic; }
 
+.vtm-intent-ready {
+  font-size:  0.75rem;
+  color:      #66bb66;
+  display:    flex;
+  align-items: center;
+  gap:        4px;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────────
    Action Dialog
 ───────────────────────────────────────────────────────────────────────────── */

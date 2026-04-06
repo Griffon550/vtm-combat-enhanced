@@ -14,10 +14,13 @@
         <i class="fas fa-running"></i> {{initiative}}
       </span>
     </div>
+    {{!-- GM-only tools --}}
+    {{#if ../isGM}}
     <div class="vtm-card-tools">
-      <button data-action="move-side"           class="vtm-icon-btn" title="Switch sides"><i class="fas fa-exchange-alt"></i></button>
-      <button data-action="remove-participant"  class="vtm-icon-btn vtm-danger" title="Remove"><i class="fas fa-times"></i></button>
+      <button data-action="move-side"           class="vtm-icon-btn" title="Seite wechseln"><i class="fas fa-exchange-alt"></i></button>
+      <button data-action="remove-participant"  class="vtm-icon-btn vtm-danger" title="Entfernen"><i class="fas fa-times"></i></button>
     </div>
+    {{/if}}
   </div>
 
   {{!-- Tracks --}}
@@ -80,14 +83,30 @@
 
   {{!-- Action buttons --}}
   <div class="vtm-card-actions">
-    <button data-action="roll-initiative" class="vtm-btn vtm-btn-sm" title="Roll Initiative">
+    {{!-- Initiative nur GM --}}
+    {{#if ../isGM}}
+    <button data-action="roll-initiative" class="vtm-btn vtm-btn-sm" title="Initiative würfeln">
       <i class="fas fa-dice-d10"></i> Initiative
     </button>
+    {{/if}}
+
+    {{!-- Aktion wählen: sichtbar für Eigentümer des Charakters --}}
+    {{#if isOwned}}
     <button data-action="choose-action"
-            class="vtm-btn vtm-btn-sm {{#if intent}}vtm-btn-success{{else}}vtm-btn-primary{{/if}}"
-            title="Set action intent">
-      <i class="fas fa-hand-paper"></i> {{#if intent}}Change Action{{else}}Set Action{{/if}}
+            class="vtm-btn vtm-btn-sm {{#if intentSet}}vtm-btn-success{{else}}vtm-btn-primary{{/if}}"
+            {{#unless canSetIntent}}disabled{{/unless}}
+            title="Aktion für diese Runde wählen">
+      <i class="fas fa-hand-paper"></i>
+      {{#if intentSet}}Aktion gewählt ✓{{else}}Aktion wählen{{/if}}
     </button>
+    {{else}}
+    {{!-- Andere Charaktere: nur Status anzeigen --}}
+    {{#if intentSet}}
+      <span class="vtm-intent-ready"><i class="fas fa-check"></i> Bereit</span>
+    {{else}}
+      <span class="vtm-muted">Wartet…</span>
+    {{/if}}
+    {{/if}}
   </div>
 
 </div>
