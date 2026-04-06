@@ -1,0 +1,35 @@
+{
+  "id": "vtm-combat-enhanced",
+  "title": "VTM Combat Enhanced",
+  "description": "Alternative 3-phase combat system for Vampire: The Masquerade V5 with drag & drop actors, intent-based resolution, and discipline support.",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "11",
+    "verified": "11",
+    "maximum": "12"
+  },
+  "authors": [
+    {
+      "name": "Developer",
+      "discord": ""
+    }
+  ],
+  "esmodules": [
+    "src/module.js"
+  ],
+  "styles": [
+    "styles/combat.css"
+  ],
+  "languages": [],
+  "packs": [],
+  "relationships": {
+    "systems": [],
+    "requires": []
+  },
+  "flags": {},
+  "url": "https://github.com/Griffon550/vtm-combat-enhanced",
+  "manifest": "https://raw.githubusercontent.com/Griffon550/vtm-combat-enhanced/main/module.json",
+  "download": "https://github.com/Griffon550/vtm-combat-enhanced/releases/latest/download/vtm-combat-enhanced.zip",
+  "license": "MIT",
+  "readme": ""
+}

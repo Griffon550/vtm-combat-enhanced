@@ -1,0 +1,118 @@
+{{!-- Combat Modal Template --}}
+<div class="vtm-combat-wrap">
+
+  {{!-- ── Top bar ── --}}
+  <div class="vtm-topbar">
+    <div class="vtm-phase-label">
+      <span class="vtm-round-badge">Round {{round}}</span>
+      <span class="vtm-phase-text">{{phaseLabel}}</span>
+    </div>
+
+    <div class="vtm-phase-controls">
+      {{#if canStartIntent}}
+        <button data-action="start-intent" class="vtm-btn vtm-btn-primary">
+          <i class="fas fa-flag"></i> Start Intent Phase
+        </button>
+      {{/if}}
+      {{#if isSetup}}
+        <button data-action="roll-all-initiative" class="vtm-btn vtm-btn-secondary">
+          <i class="fas fa-dice-d10"></i> Roll All Initiative
+        </button>
+      {{/if}}
+      {{#if canResolve}}
+        <button data-action="resolve-all" class="vtm-btn vtm-btn-danger">
+          <i class="fas fa-bolt"></i> Resolve Round
+        </button>
+      {{/if}}
+      {{#if canEndRound}}
+        <button data-action="end-round" class="vtm-btn vtm-btn-secondary">
+          <i class="fas fa-forward"></i> End Round
+        </button>
+      {{/if}}
+      {{#unless isSetup}}
+        <button data-action="roll-all-initiative" class="vtm-btn vtm-btn-ghost" title="Re-roll all initiative">
+          <i class="fas fa-dice-d10"></i>
+        </button>
+      {{/unless}}
+    </div>
+  </div>
+
+  {{!-- ── Main arena ── --}}
+  <div class="vtm-arena">
+
+    {{!-- Players side --}}
+    <div class="vtm-column vtm-players-zone" data-side="players">
+      <h3 class="vtm-column-header vtm-players-header">
+        <i class="fas fa-user-shield"></i> Players
+        <span class="vtm-drop-hint">Drop actors here</span>
+      </h3>
+
+      {{#if players.length}}
+        {{#each players}}
+          {{> "modules/vtm-combat-enhanced/templates/partials/participant-card.html" this}}
+        {{/each}}
+      {{else}}
+        <div class="vtm-empty-zone">
+          <i class="fas fa-arrow-down"></i>
+          <p>Drag characters here</p>
+        </div>
+      {{/if}}
+    </div>
+
+    {{!-- Centre: initiative order --}}
+    <div class="vtm-column vtm-center-column">
+      <h3 class="vtm-column-header">Initiative</h3>
+      {{#if initiativeOrder.length}}
+        <ol class="vtm-initiative-list">
+          {{#each initiativeOrder}}
+            <li class="vtm-initiative-item {{#if intent}}vtm-has-intent{{/if}} {{statusClass statusEffects}}"
+                data-actor-id="{{id}}">
+              <span class="vtm-init-score">{{initiative}}</span>
+              <span class="vtm-init-name">{{name}}</span>
+              {{#if intent}}
+                <span class="vtm-intent-badge" title="{{intent.actionType}}">
+                  <i class="fas fa-check"></i>
+                </span>
+              {{/if}}
+            </li>
+          {{/each}}
+        </ol>
+      {{else}}
+        <p class="vtm-muted">Roll initiative first</p>
+      {{/if}}
+
+      {{!-- Log --}}
+      <div class="vtm-log-section">
+        <h4 class="vtm-log-header">Combat Log</h4>
+        <div class="vtm-log">
+          {{#each log}}
+            <div class="vtm-log-entry">{{narrative}}</div>
+          {{else}}
+            <p class="vtm-muted">No actions yet.</p>
+          {{/each}}
+        </div>
+      </div>
+    </div>
+
+    {{!-- Enemies side --}}
+    <div class="vtm-column vtm-enemies-zone" data-side="enemies">
+      <h3 class="vtm-column-header vtm-enemies-header">
+        <i class="fas fa-skull"></i> Enemies
+        <span class="vtm-drop-hint">Drop actors here</span>
+      </h3>
+
+      {{#if enemies.length}}
+        {{#each enemies}}
+          {{> "modules/vtm-combat-enhanced/templates/partials/participant-card.html" this}}
+        {{/each}}
+      {{else}}
+        <div class="vtm-empty-zone">
+          <i class="fas fa-arrow-down"></i>
+          <p>Drag enemies here</p>
+        </div>
+      {{/if}}
+    </div>
+
+  </div>{{!-- /vtm-arena --}}
+
+</div>{{!-- /vtm-combat-wrap --}}

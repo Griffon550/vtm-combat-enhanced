@@ -1,0 +1,93 @@
+{{!--
+  Participant Card Partial
+  Context: a Participant object from combat-engine.js
+--}}
+<div class="vtm-participant-card {{#if intent}}vtm-intent-set{{/if}} {{statusClass statusEffects}}"
+     data-actor-id="{{id}}">
+
+  {{!-- Header row --}}
+  <div class="vtm-card-header">
+    <img class="vtm-avatar" src="{{img}}" alt="{{name}}" />
+    <div class="vtm-card-name-block">
+      <span class="vtm-card-name">{{name}}</span>
+      <span class="vtm-initiative-badge" title="Initiative">
+        <i class="fas fa-running"></i> {{initiative}}
+      </span>
+    </div>
+    <div class="vtm-card-tools">
+      <button data-action="move-side"           class="vtm-icon-btn" title="Switch sides"><i class="fas fa-exchange-alt"></i></button>
+      <button data-action="remove-participant"  class="vtm-icon-btn vtm-danger" title="Remove"><i class="fas fa-times"></i></button>
+    </div>
+  </div>
+
+  {{!-- Tracks --}}
+  <div class="vtm-tracks">
+
+    {{!-- Health --}}
+    <div class="vtm-track-row" title="Health {{health.value}} / {{health.max}}">
+      <span class="vtm-track-label">HP</span>
+      <div class="vtm-track-bar">
+        {{#each (healthPips health.max)}}
+          <div class="vtm-pip {{pipClass ../health.value @index}}"></div>
+        {{/each}}
+      </div>
+      <span class="vtm-track-value">{{health.value}}/{{health.max}}</span>
+    </div>
+
+    {{!-- Willpower --}}
+    <div class="vtm-track-row" title="Willpower {{willpower.value}} / {{willpower.max}}">
+      <span class="vtm-track-label">WP</span>
+      <div class="vtm-track-bar">
+        {{#each (healthPips willpower.max)}}
+          <div class="vtm-pip vtm-pip-wp {{pipClass ../willpower.value @index}}"></div>
+        {{/each}}
+      </div>
+      <span class="vtm-track-value">{{willpower.value}}/{{willpower.max}}</span>
+    </div>
+
+    {{!-- Hunger --}}
+    <div class="vtm-track-row" title="Hunger {{hunger}} / 5">
+      <span class="vtm-track-label">HG</span>
+      <div class="vtm-track-bar">
+        {{#each (hungerPips)}}
+          <div class="vtm-pip vtm-pip-hunger {{hungerPipClass ../hunger @index}}"></div>
+        {{/each}}
+      </div>
+      <span class="vtm-track-value">{{hunger}}/5</span>
+    </div>
+
+  </div>
+
+  {{!-- Status effects --}}
+  {{#if statusEffects.length}}
+    <div class="vtm-statuses">
+      {{#each statusEffects}}
+        <span class="vtm-status-badge vtm-status-{{this}}">{{this}}</span>
+      {{/each}}
+    </div>
+  {{/if}}
+
+  {{!-- Intent indicator --}}
+  {{#if intent}}
+    <div class="vtm-intent-indicator">
+      <i class="fas fa-check-circle"></i>
+      <span>{{intentLabel intent.actionType}}</span>
+      {{#if intent.targetId}}
+        <span class="vtm-intent-target">→ {{targetName intent.targetId}}</span>
+      {{/if}}
+    </div>
+  {{/if}}
+
+  {{!-- Action buttons --}}
+  <div class="vtm-card-actions">
+    <button data-action="roll-initiative" class="vtm-btn vtm-btn-sm" title="Roll Initiative">
+      <i class="fas fa-dice-d10"></i> Initiative
+    </button>
+    <button data-action="choose-action"
+            class="vtm-btn vtm-btn-sm {{#if intent}}vtm-btn-success{{else}}vtm-btn-primary{{/if}}"
+            title="Set action intent">
+      <i class="fas fa-hand-paper"></i> {{#if intent}}Change Action{{else}}Set Action{{/if}}
+    </button>
+  </div>
+
+</div>

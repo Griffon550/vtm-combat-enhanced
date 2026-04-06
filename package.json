@@ -1,0 +1,12 @@
+{
+  "name": "vtm-combat-enhanced",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Alternative VTM V5 combat system for Foundry VTT",
+  "scripts": {
+    "test":        "cd tests && npm test",
+    "test:install": "cd tests && npm install",
+    "demo":        "node tests/demo-standalone.js"
+  }
+}
