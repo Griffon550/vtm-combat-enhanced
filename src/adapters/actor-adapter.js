@@ -139,6 +139,7 @@ const FIELD_MAP = {
   // ── Attributes — wod5e stores these as items of type "skill" ───────────────
   strength:     a => wod5eSkill(a, 'strength',     2),
   dexterity:    a => wod5eSkill(a, 'dexterity',    2),
+  wits:         a => wod5eSkill(a, 'wits',         2),
   stamina:      a => wod5eSkill(a, 'stamina',       2),
   charisma:     a => wod5eSkill(a, 'charisma',      2),
   manipulation: a => wod5eSkill(a, 'manipulation',  2),
@@ -244,9 +245,12 @@ export class ActorAdapter {
       attributes: {
         strength:     this.getAttribute('strength'),
         dexterity:    this.getAttribute('dexterity'),
+        wits:         this.getAttribute('wits'),
         stamina:      this.getAttribute('stamina'),
         charisma:     this.getAttribute('charisma'),
         manipulation: this.getAttribute('manipulation'),
+        resolve:      this.getAttribute('resolve'),
+        composure:    this.getAttribute('composure'),
       },
       skills: {
         brawl:     this.getSkill('brawl'),

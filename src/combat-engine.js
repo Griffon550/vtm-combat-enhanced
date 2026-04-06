@@ -28,13 +28,21 @@ export const CombatPhase = Object.freeze({
 });
 
 export const ActionType = Object.freeze({
-  ATTACK_MELEE:  'attack_melee',
-  ATTACK_RANGED: 'attack_ranged',
-  DEFEND:        'defend',
-  DODGE:         'dodge',
-  DISCIPLINE:    'discipline',
-  SPECIAL:       'special',
-  PASS:          'pass',
+  // ── Melee attack types (determine attribute+skill pool) ────────────────────
+  ATTACK_UNARMED: 'attack_unarmed', // STR + BRAWL
+  ATTACK_LIGHT:   'attack_light',   // DEX + MELEE  (light weapons: knife, sword)
+  ATTACK_HEAVY:   'attack_heavy',   // STR + MELEE  (heavy weapons: great sword, axe)
+  // ── Ranged attack types ────────────────────────────────────────────────────
+  ATTACK_RANGED:  'attack_ranged',  // DEX + FIREARMS
+  ATTACK_AIMED:   'attack_aimed',   // WITS + FIREARMS (gezieltes Schießen)
+  // ── Backward-compatible alias (maps to ATTACK_HEAVY pool logic) ────────────
+  ATTACK_MELEE:   'attack_melee',
+  // ── Other ─────────────────────────────────────────────────────────────────
+  DEFEND:         'defend',
+  DODGE:          'dodge',
+  DISCIPLINE:     'discipline',
+  SPECIAL:        'special',
+  PASS:           'pass',
 });
 
 export const DamageType = Object.freeze({
@@ -47,6 +55,34 @@ export const StatusEffect = Object.freeze({
   TORPOR:    'torpor',
   DISABLED:  'disabled',
   DOMINATED: 'dominated',  // 1-round effect from Dominate
+});
+
+// ─── Weapon table ─────────────────────────────────────────────────────────────
+// damageBonus: fixed bonus added to net successes on a hit
+// attackType : which ActionType this weapon uses (determines attribute+skill pool)
+// damageType : null = context default (superficial), 'aggravated' = always agg.
+
+export const WEAPON_TABLE = Object.freeze({
+  UNARMED:      { key: 'UNARMED',      name: 'Unbewaffnet',    damageBonus: 0, attackType: 'attack_unarmed', damageType: null },
+  KNIFE:        { key: 'KNIFE',        name: 'Messer',         damageBonus: 1, attackType: 'attack_light',   damageType: null },
+  SWORD:        { key: 'SWORD',        name: 'Schwert',        damageBonus: 2, attackType: 'attack_light',   damageType: null },
+  GREAT_WEAPON: { key: 'GREAT_WEAPON', name: 'Große Waffe',    damageBonus: 3, attackType: 'attack_heavy',   damageType: null },
+  PISTOL:       { key: 'PISTOL',       name: 'Pistole',        damageBonus: 2, attackType: 'attack_ranged',  damageType: null },
+  RIFLE:        { key: 'RIFLE',        name: 'Gewehr',         damageBonus: 3, attackType: 'attack_ranged',  damageType: null },
+  SNIPER:       { key: 'SNIPER',       name: 'Scharfschütze',  damageBonus: 4, attackType: 'attack_aimed',   damageType: null },
+  FIRE:         { key: 'FIRE',         name: 'Feuer',          damageBonus: 2, attackType: 'attack_special', damageType: 'aggravated' },
+  SUNLIGHT:     { key: 'SUNLIGHT',     name: 'Sonnenlicht',    damageBonus: 3, attackType: 'attack_special', damageType: 'aggravated' },
+});
+
+// ─── Armor table ──────────────────────────────────────────────────────────────
+// reduction: damage points subtracted after Fortitude, before vampire halving
+
+export const ARMOR_TABLE = Object.freeze({
+  NONE:        { key: 'NONE',        name: 'Keine Rüstung',      reduction: 0 },
+  LIGHT:       { key: 'LIGHT',       name: 'Leichte Rüstung',    reduction: 1 },
+  MEDIUM:      { key: 'MEDIUM',      name: 'Mittlere Rüstung',   reduction: 2 },
+  HEAVY:       { key: 'HEAVY',       name: 'Schwere Rüstung',    reduction: 3 },
+  REINFORCED:  { key: 'REINFORCED',  name: 'Verstärkte Rüstung', reduction: 4 },
 });
 
 // ─── Participant factory ───────────────────────────────────────────────────────
@@ -86,8 +122,12 @@ export function createParticipant(data, side = 'players') {
     initiative:   data.initiative    ?? 0,
     statusEffects: Array.from(data.statusEffects ?? []),
     disciplines:  { celerity: 0, potence: 0, fortitude: 0, dominate: 0, ...data.disciplines },
-    attributes:   { strength: 2, dexterity: 2, stamina: 2, charisma: 2, manipulation: 2, ...data.attributes },
+    attributes:   { strength: 2, dexterity: 2, wits: 2, stamina: 2, charisma: 2, manipulation: 2, resolve: 2, composure: 2, ...data.attributes },
     skills:       { brawl: 0, melee: 0, firearms: 0, athletics: 0, ...data.skills },
+    /** Equipped weapon — pick from WEAPON_TABLE or null for unarmed @type {Object|null} */
+    weapon:       data.weapon ?? null,
+    /** Equipped armor — pick from ARMOR_TABLE or null @type {Object|null} */
+    armor:        data.armor  ?? null,
     intent:       null,
   };
 }
@@ -148,31 +188,45 @@ export class CombatSession {
 
   /**
    * Returns active (non-incapacitated) participants sorted by initiative desc.
+   * Tiebreaker: higher DEX wins.
    * @returns {Participant[]}
    */
   getInitiativeOrder() {
     return Array.from(this.participants.values())
       .filter(p => !this._isIncapacitated(p))
-      .sort((a, b) => b.initiative - a.initiative);
+      .sort((a, b) => {
+        if (b.initiative !== a.initiative) return b.initiative - a.initiative;
+        // Tiebreaker: higher DEX wins
+        return (b.attributes?.dexterity ?? 2) - (a.attributes?.dexterity ?? 2);
+      });
   }
 
   // ─── Initiative ────────────────────────────────────────────────────────────
 
   /**
    * Roll initiative for one participant.
-   * Formula: Dexterity + 1d10
+   * Formula (V5): DEX + WITS as a dice pool — successes determine order.
+   * Tiebreaker: higher DEX wins (handled by caller / getInitiativeOrder).
    *
    * @param {string} id
-   * @param {{ d10?: () => number }} opts  override random for tests
-   * @returns {{ participantId, dexterity, roll, total }}
+   * @param {{ roll?: (pool:number, hunger:number) => DiceResult }} opts  dice override for tests
+   * @returns {{ participantId, dex, wits, pool, hungerDice, successes }}
    */
   rollInitiative(id, opts = {}) {
-    const p = this._require(id);
-    const dex  = p.attributes.dexterity ?? 2;
-    const roll = opts.d10 ? opts.d10() : (Math.floor(Math.random() * 10) + 1);
-    p.initiative = dex + roll;
+    const p      = this._require(id);
+    const dex    = p.attributes.dexterity ?? 2;
+    const wits   = p.attributes.wits      ?? 2;
+    const pool   = dex + wits;
+    const hunger = Math.min(p.hunger ?? 0, pool);
+
+    const rollFn   = opts.roll ?? DiceEngine.roll;
+    const result   = rollFn(pool, hunger);
+
+    // Store raw successes as initiative; tiebreaker resolved by getInitiativeOrder via dex
+    p.initiative     = result.successes;
+    p._initiativeDex = dex;   // cached for tiebreaker
     this._notify();
-    return { participantId: id, dexterity: dex, roll, total: p.initiative };
+    return { participantId: id, dex, wits, pool, hungerDice: hunger, successes: result.successes };
   }
 
   /** Roll initiative for every participant. */
@@ -229,6 +283,8 @@ export class CombatSession {
       modifiers:      intent.modifiers      ?? {},
       disciplineUsed: intent.disciplineUsed ?? null,
       specialAction:  intent.specialAction  ?? null,
+      // Weapon override: entry from WEAPON_TABLE or null (falls back to participant.weapon)
+      weapon:         intent.weapon         ?? null,
     };
     this._notify();
   }
@@ -289,8 +345,12 @@ export class CombatSession {
     }
 
     switch (actionType) {
-      case ActionType.ATTACK_MELEE:
+      case ActionType.ATTACK_UNARMED:
+      case ActionType.ATTACK_LIGHT:
+      case ActionType.ATTACK_HEAVY:
       case ActionType.ATTACK_RANGED:
+      case ActionType.ATTACK_AIMED:
+      case ActionType.ATTACK_MELEE:   // backward-compat alias
         return this._resolveAttack(actor, dice);
       case ActionType.DISCIPLINE:
         return this._resolveDiscipline(actor);
@@ -304,29 +364,16 @@ export class CombatSession {
   // ─── Attack resolution ────────────────────────────────────────────────────
 
   _resolveAttack(attacker, dice) {
-    const intent   = attacker.intent;
-    const isMelee  = intent.actionType === ActionType.ATTACK_MELEE;
-    const target   = intent.targetId ? this.participants.get(intent.targetId) : null;
+    const intent  = attacker.intent;
+    const target  = intent.targetId ? this.participants.get(intent.targetId) : null;
 
-    // ── Attack pool components ────────────────────────────────────────────────
-    const potenceBonus      = Number(intent.modifiers?.potence  ?? 0);
-    const celerityBonus     = intent.modifiers?.celerity ? 1 : 0;
-    const weaponDamageBonus = Number(intent.weapon?.damageBonus ?? 0);
+    // ── Effective weapon: intent override → equipped weapon → UNARMED fallback ─
+    const weapon = intent.weapon ?? attacker.weapon ?? WEAPON_TABLE.UNARMED;
 
-    const attackAttrName = isMelee ? 'Stärke' : 'Geschicklichkeit';
-    const attackAttr     = isMelee ? attacker.attributes.strength : attacker.attributes.dexterity;
-    const attackSkillName = isMelee
-      ? ((attacker.skills.melee ?? 0) >= (attacker.skills.brawl ?? 0) ? 'Nahkampf' : 'Raufen')
-      : 'Schusswaffen';
-    const attackSkill    = isMelee
-      ? Math.max(attacker.skills.brawl ?? 0, attacker.skills.melee ?? 0)
-      : (attacker.skills.firearms ?? 0);
-
-    const attackPool   = Math.max(1, attackAttr + attackSkill + potenceBonus + celerityBonus);
-    const attackHunger = Math.min(attacker.hunger ?? 0, attackPool);
-
-    const rollFn     = dice?.roll ?? DiceEngine.roll;
-    const attackRoll = rollFn(attackPool, attackHunger);
+    // ── Attack pool ────────────────────────────────────────────────────────────
+    const atkBreakdown = this._getAttackPool(attacker, intent.actionType, intent.modifiers);
+    const rollFn       = dice?.roll ?? DiceEngine.roll;
+    const attackRoll   = rollFn(atkBreakdown.total, atkBreakdown.hungerDice);
 
     // ── Defense pool ──────────────────────────────────────────────────────────
     let defenseRoll      = null;
@@ -334,43 +381,22 @@ export class CombatSession {
     let defBreakdown     = null;
 
     if (target && !this._isIncapacitated(target) && target.intent) {
-      const ti       = target.intent;
-      const isDodge  = ti.actionType === ActionType.DODGE;
-      const isDefend = ti.actionType === ActionType.DEFEND;
-
-      if (isDodge || isDefend) {
-        const fortitudeBonus = Number(ti.modifiers?.fortitude ?? 0);
-        const defAttrName    = 'Geschicklichkeit';
-        const defAttr        = target.attributes.dexterity;
-        const defSkillName   = isDodge ? 'Sport' : 'Nahkampf/Raufen';
-        const defSkill       = isDodge
-          ? (target.skills.athletics ?? 0)
-          : Math.max(target.skills.brawl ?? 0, target.skills.melee ?? 0);
-        const defPool        = Math.max(1, defAttr + defSkill + fortitudeBonus);
-        const defHunger      = Math.min(target.hunger ?? 0, defPool);
-
-        defenseRoll      = rollFn(defPool, defHunger);
+      const ti = target.intent;
+      if (ti.actionType === ActionType.DODGE || ti.actionType === ActionType.DEFEND) {
+        defBreakdown     = this._getDefensePool(target, ti);
+        defenseRoll      = rollFn(defBreakdown.total, defBreakdown.hungerDice);
         defenseSuccesses = defenseRoll.successes;
-        defBreakdown     = {
-          attrName: defAttrName, attrVal: defAttr,
-          skillName: defSkillName, skillVal: defSkill,
-          fortitude: fortitudeBonus,
-          total: defPool, hungerDice: defHunger,
-        };
       }
     }
 
-    // ── Net result ────────────────────────────────────────────────────────────
-    const netSuccesses = Math.max(0, attackRoll.successes - defenseSuccesses);
+    // ── Net result & damage ───────────────────────────────────────────────────
+    const netSuccesses  = Math.max(0, attackRoll.successes - defenseSuccesses);
+    const weaponDmgBonus = Number(weapon.damageBonus ?? 0);
+    const rawDamage      = netSuccesses > 0 ? netSuccesses + weaponDmgBonus : 0;
 
-    // Base damage bonus: ranged always +1, melee +1 if Potence active
-    const baseDmgBonus  = isMelee && potenceBonus > 0 ? 1 : (isMelee ? 0 : 1);
-    const totalDmgBonus = baseDmgBonus + weaponDamageBonus;
-    const rawDamage     = netSuccesses > 0 ? netSuccesses + totalDmgBonus : 0;
-
-    // Damage type: weapon override → messy crit → default superficial
-    const weaponForcesAgg = intent.weapon?.damageType === DamageType.AGGRAVATED;
-    const damageType      = (weaponForcesAgg || attackRoll.messyCritical)
+    // Damage type: weapon forces aggravated → messy crit → default superficial
+    const weaponForcesAgg = weapon.damageType === DamageType.AGGRAVATED;
+    const damageType = (weaponForcesAgg || attackRoll.messyCritical)
       ? DamageType.AGGRAVATED
       : DamageType.SUPERFICIAL;
 
@@ -381,35 +407,123 @@ export class CombatSession {
       this._applyDamage(target, actualDamage, effects);
     }
 
-    // ── Pool breakdown (for display) ──────────────────────────────────────────
-    const atkBreakdown = {
-      attrName: attackAttrName, attrVal: attackAttr,
-      skillName: attackSkillName, skillVal: attackSkill,
-      potence:  potenceBonus,
-      celerity: celerityBonus,
-      weapon:   intent.weapon?.name ?? null,
-      weaponDmg: weaponDamageBonus,
-      total:    attackPool,
-      hungerDice: attackHunger,
-    };
-
     return {
-      attackerId:  attacker.id,
+      attackerId:   attacker.id,
       attackerName: attacker.name,
-      defenderId:  target?.id ?? null,
+      defenderId:   target?.id   ?? null,
       defenderName: target?.name ?? null,
-      actionType:  intent.actionType,
+      actionType:   intent.actionType,
+      weapon:       weapon.name,
       attackRoll,
       defenseRoll,
       netSuccesses,
       rawDamage,
-      damage:      actualDamage,
+      damage:       actualDamage,
       damageType,
       effects,
-      breakdown:   { attack: atkBreakdown, defense: defBreakdown },
-      narrative:   this._narrative(attacker, target, attackRoll, defenseRoll,
-                     netSuccesses, actualDamage, damageType, effects, atkBreakdown),
+      breakdown:    { attack: atkBreakdown, defense: defBreakdown },
+      narrative:    this._narrative(attacker, target, attackRoll, defenseRoll,
+                      netSuccesses, actualDamage, damageType, effects, atkBreakdown, weapon),
     };
+  }
+
+  // ─── Attack pool helper ───────────────────────────────────────────────────
+  //
+  // Returns the fully-computed attack pool breakdown for a given action type.
+  // Applies IMPAIRED penalty (-2 dice) automatically.
+  //
+  // @param {Participant} attacker
+  // @param {string}      actionType  one of ActionType.*
+  // @param {Object}      modifiers   { celerity, potence }
+  // @returns {{ total, hungerDice, attrName, attrVal, skillName, skillVal,
+  //             potenceBonus, celerityBonus, impaired }}
+
+  _getAttackPool(attacker, actionType, modifiers) {
+    const potenceBonus  = Number(modifiers?.potence  ?? 0);
+    const celerityBonus = modifiers?.celerity ? 1 : 0;
+
+    let attrVal, attrName, skillVal, skillName;
+
+    switch (actionType) {
+      case ActionType.ATTACK_UNARMED:
+        attrVal = attacker.attributes.strength;       attrName  = 'Stärke';
+        skillVal = attacker.skills.brawl ?? 0;        skillName = 'Raufen';
+        break;
+
+      case ActionType.ATTACK_LIGHT:
+        attrVal = attacker.attributes.dexterity;      attrName  = 'Geschicklichkeit';
+        skillVal = attacker.skills.melee ?? 0;        skillName = 'Nahkampf';
+        break;
+
+      case ActionType.ATTACK_HEAVY:
+        attrVal = attacker.attributes.strength;       attrName  = 'Stärke';
+        skillVal = attacker.skills.melee ?? 0;        skillName = 'Nahkampf';
+        break;
+
+      case ActionType.ATTACK_RANGED:
+        attrVal = attacker.attributes.dexterity;      attrName  = 'Geschicklichkeit';
+        skillVal = attacker.skills.firearms ?? 0;     skillName = 'Schusswaffen';
+        break;
+
+      case ActionType.ATTACK_AIMED:
+        attrVal = attacker.attributes.wits ?? 2;      attrName  = 'Verstand';
+        skillVal = attacker.skills.firearms ?? 0;     skillName = 'Schusswaffen';
+        break;
+
+      case ActionType.ATTACK_MELEE:   // backward-compat: use max(brawl, melee) with STR
+      default: {
+        const brawl = attacker.skills.brawl ?? 0;
+        const melee = attacker.skills.melee ?? 0;
+        attrVal   = attacker.attributes.strength;   attrName  = 'Stärke';
+        if (melee >= brawl) { skillVal = melee; skillName = 'Nahkampf'; }
+        else                { skillVal = brawl; skillName = 'Raufen';   }
+        break;
+      }
+    }
+
+    const impaired  = attacker.statusEffects.includes(StatusEffect.IMPAIRED) ? 2 : 0;
+    const total     = Math.max(1, attrVal + skillVal + potenceBonus + celerityBonus - impaired);
+    const hungerDice = Math.min(attacker.hunger ?? 0, total);
+
+    return { total, hungerDice, attrName, attrVal, skillName, skillVal,
+             potenceBonus, celerityBonus, impaired };
+  }
+
+  // ─── Defense pool helper ──────────────────────────────────────────────────
+  //
+  // Returns the defense pool breakdown for a defending/dodging participant.
+  // Applies IMPAIRED penalty (-2 dice) automatically.
+  //
+  // @param {Participant} target
+  // @param {Intent}      intent  the target's declared intent
+  // @returns {{ total, hungerDice, attrName, attrVal, skillName, skillVal,
+  //             fortitude, impaired }}
+
+  _getDefensePool(target, intent) {
+    const fortitudeBonus = Number(intent.modifiers?.fortitude ?? 0);
+    const isDodge        = intent.actionType === ActionType.DODGE;
+
+    const attrVal  = target.attributes.dexterity;
+    const attrName = 'Geschicklichkeit';
+    let skillVal, skillName;
+
+    if (isDodge) {
+      skillVal  = target.skills.athletics ?? 0;
+      skillName = 'Sport';
+    } else {
+      // DEFEND — parry with highest of brawl/melee
+      const brawl = target.skills.brawl ?? 0;
+      const melee = target.skills.melee ?? 0;
+      if (melee >= brawl) { skillVal = melee; skillName = 'Nahkampf'; }
+      else                { skillVal = brawl; skillName = 'Raufen';   }
+    }
+
+    const impaired  = target.statusEffects.includes(StatusEffect.IMPAIRED) ? 2 : 0;
+    const total     = Math.max(1, attrVal + skillVal + fortitudeBonus - impaired);
+    const hungerDice = Math.min(target.hunger ?? 0, total);
+
+    return { total, hungerDice, attrName, attrVal, skillName, skillVal,
+             fortitude: fortitudeBonus, impaired };
   }
 
   // ─── Discipline resolution ────────────────────────────────────────────────
@@ -484,13 +598,19 @@ export class CombatSession {
     if (!target || rawDamage <= 0) return rawDamage;
     let damage = rawDamage;
 
-    // Fortitude on the TARGET reduces superficial damage
+    // 1. Fortitude (active defense modifier, superficial only)
     if (type === DamageType.SUPERFICIAL && target.intent) {
       const fortBonus = Number(target.intent.modifiers?.fortitude ?? 0);
       damage = Math.max(0, damage - fortBonus);
     }
 
-    // Vampires halve superficial
+    // 2. Armor reduction (applies to both damage types vs. physical attacks)
+    const armorReduction = target.armor?.reduction ?? 0;
+    if (armorReduction > 0) {
+      damage = Math.max(0, damage - armorReduction);
+    }
+
+    // 3. Vampires halve superficial damage (after armor, ceiling)
     if (type === DamageType.SUPERFICIAL) {
       damage = Math.ceil(damage / 2);
     }
@@ -540,7 +660,7 @@ export class CombatSession {
 
   // ─── Narrative builder ────────────────────────────────────────────────────
 
-  _narrative(attacker, target, atkRoll, defRoll, net, damage, dmgType, effects, breakdown) {
+  _narrative(attacker, target, atkRoll, defRoll, net, damage, dmgType, effects, breakdown, weapon) {
     // Pool breakdown line
     let poolLine = '';
     if (breakdown) {
@@ -548,21 +668,22 @@ export class CombatSession {
         `${breakdown.attrName}(${breakdown.attrVal})`,
         `${breakdown.skillName}(${breakdown.skillVal})`,
       ];
-      if (breakdown.potence)  parts.push(`Potenz(${breakdown.potence})`);
-      if (breakdown.celerity) parts.push(`Celerity(1)`);
-      if (breakdown.weapon && breakdown.weaponDmg > 0)
-        parts.push(`${breakdown.weapon} +${breakdown.weaponDmg} Schaden`);
-      poolLine = `[Pool: ${parts.join(' + ')} = ${breakdown.total} Würfel, ${breakdown.hungerDice} Hunger] `;
+      if (breakdown.potenceBonus)  parts.push(`Potenz(${breakdown.potenceBonus})`);
+      if (breakdown.celerityBonus) parts.push(`Celerity(1)`);
+      if (breakdown.impaired > 0)  parts.push(`Beeinträchtigt(-${breakdown.impaired})`);
+      poolLine = `[Pool: ${parts.join(' + ')} = ${breakdown.total} W, ${breakdown.hungerDice}× Hunger] `;
     }
 
     let s = `${attacker.name} → ${target?.name ?? '?'}: `;
+    if (weapon && weapon.name !== 'Unbewaffnet') s += `[${weapon.name}] `;
     s += poolLine;
     s += `${atkRoll.successes} Angriffserfolge`;
     if (defRoll) s += ` vs ${defRoll.successes} Verteidigung`;
     s += ` = ${net} netto. `;
 
     if (net > 0) {
-      s += `${damage} ${dmgType === 'aggravated' ? 'aggraviierter' : 'oberflächlicher'} Schaden. `;
+      const dmgLabel = dmgType === 'aggravated' ? 'aggraviierter' : 'oberflächlicher';
+      s += `${damage} ${dmgLabel} Schaden. `;
     } else {
       s += `Angriff geblockt. `;
     }
