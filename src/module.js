@@ -74,6 +74,7 @@ Hooks.once('init', () => {
   loadTemplates([
     `modules/${MODULE_ID}/templates/combat-modal.html`,
     `modules/${MODULE_ID}/templates/action-dialog.html`,
+    `modules/${MODULE_ID}/templates/dice-popup.html`,
     `modules/${MODULE_ID}/templates/partials/participant-card.html`,
   ]);
 

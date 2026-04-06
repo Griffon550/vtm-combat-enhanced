@@ -30,6 +30,11 @@ export class ActionDialog extends Application {
       modifiers:      {},
       disciplineUsed: null,
       specialAction:  '',
+      weapon: {
+        name:        '',
+        damageBonus: 0,
+        damageType:  null, // null = default, 'aggravated' = override
+      },
     };
   }
 
@@ -115,6 +120,16 @@ export class ActionDialog extends Application {
     // ── Special action text ────────────────────────────────────────────────
     html.find('[name="specialAction"]').on('input', ev => {
       this._intent.specialAction = ev.target.value;
+    });
+
+    html.find('[name="weaponName"]').on('input', ev => {
+      this._intent.weapon.name = ev.target.value;
+    });
+    html.find('[name="weaponDamageBonus"]').on('change', ev => {
+      this._intent.weapon.damageBonus = parseInt(ev.target.value) || 0;
+    });
+    html.find('[name="weaponDamageType"]').on('change', ev => {
+      this._intent.weapon.damageType = ev.target.value || null;
     });
 
     // ── Buttons ────────────────────────────────────────────────────────────

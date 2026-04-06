@@ -73,21 +73,46 @@
 
     {{!-- ── Modifiers (attack / discipline) ── --}}
     {{#if isAttack}}
+    {{!-- Waffe --}}
     <fieldset class="vtm-modifiers">
-      <legend>Modifiers</legend>
+      <legend>Waffe (optional)</legend>
+      <div class="vtm-form-group">
+        <label for="vtm-weaponName">Waffenname</label>
+        <input type="text" id="vtm-weaponName" name="weaponName"
+               value="{{intent.weapon.name}}" placeholder="z.B. Messer, Pistole, Kampfaxt…" />
+      </div>
+      <div class="vtm-modifier-row">
+        <label>Schadensbonus</label>
+        <input type="number" name="weaponDamageBonus" min="0" max="10"
+               value="{{intent.weapon.damageBonus}}" class="vtm-number-input" />
+      </div>
+      <div class="vtm-form-group">
+        <label for="vtm-weaponDamageType">Schadenstyp</label>
+        <select id="vtm-weaponDamageType" name="weaponDamageType">
+          <option value="">Standard (oberflächlich)</option>
+          <option value="aggravated" {{#eq intent.weapon.damageType "aggravated"}}selected{{/eq}}>
+            Aggraviiert (z.B. Feuer, silberne Waffe)
+          </option>
+        </select>
+      </div>
+    </fieldset>
+
+    {{!-- Disziplin-Modifikatoren --}}
+    <fieldset class="vtm-modifiers">
+      <legend>Disziplin-Modifikatoren</legend>
 
       {{#if participant.disciplines.celerity}}
       <div class="vtm-modifier-row">
         <label>
           <input type="checkbox" name="celerity" {{#if intent.modifiers.celerity}}checked{{/if}} />
-          Celerity (+1 die)
+          Celerity (+1 Würfel)
         </label>
       </div>
       {{/if}}
 
       {{#if participant.disciplines.potence}}
       <div class="vtm-modifier-row">
-        <label>Potence bonus dice</label>
+        <label>Potenz Schadensbonus</label>
         <input type="number" name="potence" min="0"
                max="{{participant.disciplines.potence}}"
                value="{{intent.modifiers.potence}}" class="vtm-number-input" />
@@ -99,11 +124,11 @@
 
     {{#if isDefensive}}
     <fieldset class="vtm-modifiers">
-      <legend>Modifiers</legend>
+      <legend>Disziplin-Modifikatoren</legend>
 
       {{#if participant.disciplines.fortitude}}
       <div class="vtm-modifier-row">
-        <label>Fortitude damage reduction</label>
+        <label>Fortitude Schadensreduktion</label>
         <input type="number" name="fortitude" min="0"
                max="{{participant.disciplines.fortitude}}"
                value="{{intent.modifiers.fortitude}}" class="vtm-number-input" />

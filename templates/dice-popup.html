@@ -1,0 +1,92 @@
+{{!-- Dice Roll Popup --}}
+<div class="vtm-dice-popup-wrap">
+
+  {{#if rolls.length}}
+    {{#each rolls}}
+    <div class="vtm-roll-block">
+
+      {{!-- Titel --}}
+      <h3 class="vtm-roll-title">
+        {{attackerName}}
+        {{#if defenderName}}<span class="vtm-vs">→</span> {{defenderName}}{{/if}}
+      </h3>
+
+      {{!-- Pool-Aufschlüsselung Angriff --}}
+      {{#if poolLine}}
+      <div class="vtm-pool-breakdown">
+        <i class="fas fa-dice-d10"></i> <strong>Angriff:</strong> {{poolLine}}
+        {{#if breakdown.attack.weapon}}
+          · {{breakdown.attack.weapon}} +{{breakdown.attack.weaponDmg}} Schaden
+        {{/if}}
+      </div>
+      {{/if}}
+
+      {{!-- Würfelschale Angriff --}}
+      <div class="vtm-dice-tray">
+        {{#each atkNormalDice}}
+          <div class="vtm-die {{cls}}" title="Normaler Würfel: {{value}}">{{value}}</div>
+        {{/each}}
+        {{#each atkHungerDice}}
+          <div class="vtm-die vtm-hunger-die {{cls}}" title="Hunger-Würfel: {{value}}">{{value}}</div>
+        {{/each}}
+      </div>
+
+      {{!-- Ergebnis Angriff --}}
+      <div class="vtm-roll-summary">
+        {{attackRoll.successes}} Erfolge
+        {{#if attackRoll.critPairs}} · <span class="vtm-crit-label">{{attackRoll.critPairs}}× Krit</span>{{/if}}
+        {{#if isMessy}} · <span class="vtm-messy-label">💀 MESSY CRITICAL</span>{{/if}}
+        {{#if isBestial}} · <span class="vtm-bestial-label">⚠ BESTIAL FAILURE</span>{{/if}}
+      </div>
+
+      {{!-- Verteidigung --}}
+      {{#if hasDefense}}
+      <div class="vtm-defense-block">
+        {{#if defPoolLine}}
+        <div class="vtm-pool-breakdown vtm-def-breakdown">
+          <i class="fas fa-shield-alt"></i> <strong>Verteidigung:</strong> {{defPoolLine}}
+        </div>
+        {{/if}}
+        <div class="vtm-dice-tray vtm-def-tray">
+          {{#each defNormalDice}}
+            <div class="vtm-die {{cls}}" title="Normaler Würfel: {{value}}">{{value}}</div>
+          {{/each}}
+          {{#each defHungerDice}}
+            <div class="vtm-die vtm-hunger-die {{cls}}" title="Hunger-Würfel: {{value}}">{{value}}</div>
+          {{/each}}
+        </div>
+        <div class="vtm-roll-summary vtm-def-summary">
+          {{defenseRoll.successes}} Erfolge
+        </div>
+      </div>
+      {{/if}}
+
+      {{!-- Nettoergebnis --}}
+      <div class="vtm-net-result {{#if isAggravated}}vtm-aggravated{{/if}}">
+        {{#if netSuccesses}}
+          <span class="vtm-net-hits">{{netSuccesses}} Netto</span>
+          → <span class="vtm-damage-val">{{damage}}</span>
+          <span class="vtm-dmg-type">{{dmgLabel}} Schaden</span>
+        {{else}}
+          <span class="vtm-blocked">Angriff geblockt</span>
+        {{/if}}
+        {{#if effects.length}}
+          <div class="vtm-effects">
+            {{#each effects}}<span class="vtm-effect-tag">{{this}}</span>{{/each}}
+          </div>
+        {{/if}}
+      </div>
+
+    </div>
+    {{/each}}
+  {{else}}
+    <p class="vtm-muted">Keine Würfelergebnisse in dieser Runde.</p>
+  {{/if}}
+
+  <div class="vtm-popup-footer">
+    <button data-action="close-popup" class="vtm-btn vtm-btn-primary">
+      <i class="fas fa-check"></i> Verstanden
+    </button>
+  </div>
+
+</div>

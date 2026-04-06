@@ -8,6 +8,7 @@
 import { CombatSession, CombatPhase, ActionType } from '../combat-engine.js';
 import { createAdapter }  from '../adapters/actor-adapter.js';
 import { ActionDialog }   from './action-dialog.js';
+import { DiceRollPopup }  from './dice-popup.js';
 import { emitSocket }     from '../module.js';
 
 const MODULE_ID = 'vtm-combat-enhanced';
@@ -223,6 +224,11 @@ export class CombatModal extends Application {
     }
 
     await this._postChat(results);
+
+    // Würfel-Popup im Vordergrund anzeigen
+    const popup = new DiceRollPopup(results, this.session.participants);
+    popup.render(true);
+
     this.render(false);
   }
 

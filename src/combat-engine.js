@@ -308,63 +308,96 @@ export class CombatSession {
     const isMelee  = intent.actionType === ActionType.ATTACK_MELEE;
     const target   = intent.targetId ? this.participants.get(intent.targetId) : null;
 
-    // ── Attack pool ──────────────────────────────────────────────────────────
-    const potenceBonus  = Number(intent.modifiers?.potence  ?? 0);
-    const celerityBonus = intent.modifiers?.celerity ? 1 : 0;
-    const attackAttr    = isMelee ? attacker.attributes.strength : attacker.attributes.dexterity;
-    const attackSkill   = isMelee
+    // ── Attack pool components ────────────────────────────────────────────────
+    const potenceBonus      = Number(intent.modifiers?.potence  ?? 0);
+    const celerityBonus     = intent.modifiers?.celerity ? 1 : 0;
+    const weaponDamageBonus = Number(intent.weapon?.damageBonus ?? 0);
+
+    const attackAttrName = isMelee ? 'Stärke' : 'Geschicklichkeit';
+    const attackAttr     = isMelee ? attacker.attributes.strength : attacker.attributes.dexterity;
+    const attackSkillName = isMelee
+      ? ((attacker.skills.melee ?? 0) >= (attacker.skills.brawl ?? 0) ? 'Nahkampf' : 'Raufen')
+      : 'Schusswaffen';
+    const attackSkill    = isMelee
       ? Math.max(attacker.skills.brawl ?? 0, attacker.skills.melee ?? 0)
       : (attacker.skills.firearms ?? 0);
-    const attackPool    = Math.max(1, attackAttr + attackSkill + potenceBonus + celerityBonus);
-    const attackHunger  = Math.min(attacker.hunger ?? 0, attackPool);
+
+    const attackPool   = Math.max(1, attackAttr + attackSkill + potenceBonus + celerityBonus);
+    const attackHunger = Math.min(attacker.hunger ?? 0, attackPool);
 
     const rollFn     = dice?.roll ?? DiceEngine.roll;
     const attackRoll = rollFn(attackPool, attackHunger);
 
-    // ── Defense pool (if target reacts) ──────────────────────────────────────
-    let defenseRoll     = null;
+    // ── Defense pool ──────────────────────────────────────────────────────────
+    let defenseRoll      = null;
     let defenseSuccesses = 0;
+    let defBreakdown     = null;
 
     if (target && !this._isIncapacitated(target) && target.intent) {
-      const ti = target.intent;
+      const ti       = target.intent;
       const isDodge  = ti.actionType === ActionType.DODGE;
       const isDefend = ti.actionType === ActionType.DEFEND;
 
       if (isDodge || isDefend) {
         const fortitudeBonus = Number(ti.modifiers?.fortitude ?? 0);
+        const defAttrName    = 'Geschicklichkeit';
         const defAttr        = target.attributes.dexterity;
-        const defSkill       = isDodge ? (target.skills.athletics ?? 0)
-                                       : Math.max(target.skills.brawl ?? 0, target.skills.melee ?? 0);
+        const defSkillName   = isDodge ? 'Sport' : 'Nahkampf/Raufen';
+        const defSkill       = isDodge
+          ? (target.skills.athletics ?? 0)
+          : Math.max(target.skills.brawl ?? 0, target.skills.melee ?? 0);
         const defPool        = Math.max(1, defAttr + defSkill + fortitudeBonus);
         const defHunger      = Math.min(target.hunger ?? 0, defPool);
 
         defenseRoll      = rollFn(defPool, defHunger);
         defenseSuccesses = defenseRoll.successes;
+        defBreakdown     = {
+          attrName: defAttrName, attrVal: defAttr,
+          skillName: defSkillName, skillVal: defSkill,
+          fortitude: fortitudeBonus,
+          total: defPool, hungerDice: defHunger,
+        };
       }
     }
 
     // ── Net result ────────────────────────────────────────────────────────────
     const netSuccesses = Math.max(0, attackRoll.successes - defenseSuccesses);
 
-    // Potence adds +1 damage on melee hits
-    const damageBonus = isMelee && potenceBonus > 0 ? 1 : (isMelee ? 0 : 1);
-    const rawDamage   = netSuccesses > 0 ? netSuccesses + damageBonus : 0;
+    // Base damage bonus: ranged always +1, melee +1 if Potence active
+    const baseDmgBonus  = isMelee && potenceBonus > 0 ? 1 : (isMelee ? 0 : 1);
+    const totalDmgBonus = baseDmgBonus + weaponDamageBonus;
+    const rawDamage     = netSuccesses > 0 ? netSuccesses + totalDmgBonus : 0;
 
-    // Messy Crits deal aggravated damage
-    const damageType  = attackRoll.messyCritical ? DamageType.AGGRAVATED : DamageType.SUPERFICIAL;
+    // Damage type: weapon override → messy crit → default superficial
+    const weaponForcesAgg = intent.weapon?.damageType === DamageType.AGGRAVATED;
+    const damageType      = (weaponForcesAgg || attackRoll.messyCritical)
+      ? DamageType.AGGRAVATED
+      : DamageType.SUPERFICIAL;
 
-    // Vampires halve superficial damage
     const actualDamage = this._applyDamageReduction(rawDamage, damageType, target, intent);
 
-    // ── Apply effects ─────────────────────────────────────────────────────────
     const effects = [];
     if (target && netSuccesses > 0 && actualDamage > 0) {
       this._applyDamage(target, actualDamage, effects);
     }
 
+    // ── Pool breakdown (for display) ──────────────────────────────────────────
+    const atkBreakdown = {
+      attrName: attackAttrName, attrVal: attackAttr,
+      skillName: attackSkillName, skillVal: attackSkill,
+      potence:  potenceBonus,
+      celerity: celerityBonus,
+      weapon:   intent.weapon?.name ?? null,
+      weaponDmg: weaponDamageBonus,
+      total:    attackPool,
+      hungerDice: attackHunger,
+    };
+
     return {
       attackerId:  attacker.id,
+      attackerName: attacker.name,
       defenderId:  target?.id ?? null,
+      defenderName: target?.name ?? null,
       actionType:  intent.actionType,
       attackRoll,
       defenseRoll,
@@ -373,7 +406,9 @@ export class CombatSession {
       damage:      actualDamage,
       damageType,
       effects,
-      narrative:   this._narrative(attacker, target, attackRoll, defenseRoll, netSuccesses, actualDamage, damageType, effects),
+      breakdown:   { attack: atkBreakdown, defense: defBreakdown },
+      narrative:   this._narrative(attacker, target, attackRoll, defenseRoll,
+                     netSuccesses, actualDamage, damageType, effects, atkBreakdown),
     };
   }
 
@@ -505,20 +540,35 @@ export class CombatSession {
 
   // ─── Narrative builder ────────────────────────────────────────────────────
 
-  _narrative(attacker, target, atkRoll, defRoll, net, damage, dmgType, effects) {
-    let s = `${attacker.name} → ${target?.name ?? '?'}: `;
-    s += `${atkRoll.successes} atk`;
-    if (defRoll) s += ` vs ${defRoll.successes} def`;
-    s += ` = ${net} net. `;
-
-    if (net > 0) {
-      s += `${damage} ${dmgType} dmg. `;
-    } else {
-      s += `Blocked. `;
+  _narrative(attacker, target, atkRoll, defRoll, net, damage, dmgType, effects, breakdown) {
+    // Pool breakdown line
+    let poolLine = '';
+    if (breakdown) {
+      const parts = [
+        `${breakdown.attrName}(${breakdown.attrVal})`,
+        `${breakdown.skillName}(${breakdown.skillVal})`,
+      ];
+      if (breakdown.potence)  parts.push(`Potenz(${breakdown.potence})`);
+      if (breakdown.celerity) parts.push(`Celerity(1)`);
+      if (breakdown.weapon && breakdown.weaponDmg > 0)
+        parts.push(`${breakdown.weapon} +${breakdown.weaponDmg} Schaden`);
+      poolLine = `[Pool: ${parts.join(' + ')} = ${breakdown.total} Würfel, ${breakdown.hungerDice} Hunger] `;
     }
 
-    if (atkRoll.bestialFailure) s += '[BESTIAL FAILURE] ';
-    if (atkRoll.messyCritical)  s += '[MESSY CRITICAL] ';
+    let s = `${attacker.name} → ${target?.name ?? '?'}: `;
+    s += poolLine;
+    s += `${atkRoll.successes} Angriffserfolge`;
+    if (defRoll) s += ` vs ${defRoll.successes} Verteidigung`;
+    s += ` = ${net} netto. `;
+
+    if (net > 0) {
+      s += `${damage} ${dmgType === 'aggravated' ? 'aggraviierter' : 'oberflächlicher'} Schaden. `;
+    } else {
+      s += `Angriff geblockt. `;
+    }
+
+    if (atkRoll.bestialFailure) s += '⚠ BESTIAL FAILURE! ';
+    if (atkRoll.messyCritical)  s += '💀 MESSY CRITICAL! ';
     if (effects.length) s += effects.join('; ') + '.';
     return s.trim();
   }
