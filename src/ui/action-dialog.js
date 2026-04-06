@@ -28,19 +28,20 @@ export class ActionDialog extends Application {
    * @param {Participant[]} params.targets       Alle verfügbaren Ziele
    * @param {(intent: Intent) => void} params.onConfirm
    */
-  constructor({ participant, targets, onConfirm }, options = {}) {
+  constructor({ participant, targets, onConfirm, existingIntent = null }, options = {}) {
     super(options);
     this.participant = participant;
     this.targets     = targets;
     this.onConfirm   = onConfirm;
 
+    const ex = existingIntent;
     this._intent = {
-      actionType:     ActionType.ATTACK_UNARMED,
-      targetId:       targets.find(t => t.side !== participant.side)?.id ?? null,
-      activePowers:   [],   // aktivierte nicht-passive Kräfte
-      disciplineUsed: null,
-      specialAction:  '',
-      weapon:         null, // Eintrag aus WEAPON_TABLE oder null
+      actionType:     ex?.actionType     ?? ActionType.ATTACK_UNARMED,
+      targetId:       ex?.targetId       ?? targets.find(t => t.side !== participant.side)?.id ?? null,
+      activePowers:   ex?.activePowers   ? [...ex.activePowers] : [],
+      disciplineUsed: ex?.disciplineUsed ?? null,
+      specialAction:  ex?.specialAction  ?? '',
+      weapon:         ex?.weapon         ?? null,
     };
   }
 

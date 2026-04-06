@@ -276,14 +276,17 @@ export class CombatSession {
     p._initiativeDex = dex;
     this._notify();
     return {
-      participantId:    id,
+      participantId:      id,
+      name:               p.name,
       dex, wits,
-      pool:             initCtx.pool,
-      hungerDice:       initCtx.hungerDice,
-      successes:        result.successes,
-      initiativeBonus:  initCtx.initiativeBonus,
+      pool:               initCtx.pool,
+      hungerDice:         initCtx.hungerDice,
+      roll:               result,          // full DiceResult (normalRolls, hungerRolls, …)
+      successes:          result.successes,
+      initiativeBonus:    initCtx.initiativeBonus,
       surpriseResistance: initCtx.surpriseResistance,
-      total:            p.initiative,
+      appliedPowers:      initCtx.appliedPowers ?? [],
+      total:              p.initiative,
     };
   }
 

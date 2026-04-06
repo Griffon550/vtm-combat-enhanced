@@ -10,6 +10,7 @@ import { createAdapter }  from '../adapters/actor-adapter.js';
 import { ActionDialog }   from './action-dialog.js';
 import { DiceRollPopup }  from './dice-popup.js';
 import { emitSocket }     from '../module.js';
+import { evaluate as diceEvaluate } from '../dice/dice-engine.js';
 
 const MODULE_ID = 'vtm-combat-enhanced';
 const TEMPLATE  = `modules/${MODULE_ID}/templates/combat-modal.html`;
@@ -55,8 +56,7 @@ export class CombatModal extends Application {
       ...p,
       isOwned:      isGM || !!(game.actors.get(p.id)?.isOwner),
       canSetIntent: (isGM || !!(game.actors.get(p.id)?.isOwner)) &&
-                    state.phase === CombatPhase.INTENT &&
-                    !p.intent,
+                    state.phase === CombatPhase.INTENT,
       intentSet:    !!p.intent,
     });
 
@@ -103,10 +103,10 @@ export class CombatModal extends Application {
       html.find('[data-action="start-intent"]').on('click', () => this.session.startIntentPhase());
       html.find('[data-action="resolve-all"]').on('click',  () => this._onResolveAll());
       html.find('[data-action="end-round"]').on('click',    () => this.session.endRound());
-      html.find('[data-action="roll-all-initiative"]').on('click', () => this.session.rollAllInitiative());
+      html.find('[data-action="roll-all-initiative"]').on('click', () => this._rollAllInitiativeWithDisplay());
       html.find('[data-action="roll-initiative"]').on('click', ev => {
         const id = this._actorId(ev);
-        if (id) this.session.rollInitiative(id);
+        if (id) this._rollInitiativeWithDisplay(id);
       });
       html.find('[data-action="remove-participant"]').on('click', ev => {
         const id = this._actorId(ev);
@@ -189,6 +189,7 @@ export class CombatModal extends Application {
     new ActionDialog({
       participant,
       targets,
+      existingIntent: participant.intent ?? null,
       onConfirm: (intent) => {
         if (this._isGM) {
           // GM setzt Intent direkt
@@ -200,6 +201,98 @@ export class CombatModal extends Application {
         }
       },
     }).render(true);
+  }
+
+  // ─── Initiative mit Foundry Roll API (Dice So Nice) ──────────────────────
+
+  async _rollInitiativeWithDisplay(id) {
+    if (!this._isGM) return;
+    const p = this.session.getParticipant(id);
+    if (!p) return;
+
+    const dex  = p.attributes.dexterity ?? 2;
+    const wits = p.attributes.wits      ?? 2;
+
+    // Pool berechnen (identisch zur Logik in rollInitiative — pure/side-effect-free)
+    const initCtx = this.session.disciplineEngine.applyBeforeInitiative(
+      p,
+      { pool: dex + wits, hungerDice: 0 },
+      p.intent?.activePowers ?? [],
+    );
+
+    const normalCount = initCtx.pool - initCtx.hungerDice;
+    const hungerCount = initCtx.hungerDice;
+
+    // Via Foundry Roll würfeln → triggert Dice So Nice automatisch
+    const parts   = [
+      normalCount > 0 && `${normalCount}d10`,
+      hungerCount > 0 && `${hungerCount}d10`,
+    ].filter(Boolean);
+    const formula = parts.join('+') || '1d10';
+
+    const foundryRoll = new Roll(formula);
+    await foundryRoll.evaluate({ async: true });
+
+    // Einzelne Würfelwerte aus Foundry-Roll extrahieren
+    const allValues = foundryRoll.terms
+      .filter(t => Array.isArray(t.results))
+      .flatMap(t => t.results.map(r => r.result));
+    const normalRolls = allValues.slice(0, normalCount);
+    const hungerRolls = allValues.slice(normalCount);
+
+    // Engine mit vorgewürfelten Werten aufrufen (kein zweites Würfeln)
+    const initResult = this.session.rollInitiative(id, {
+      roll: () => diceEvaluate(normalRolls, hungerRolls),
+    });
+
+    // Chat-Nachricht mit Aufschlüsselung — Roll ist eingebettet für Dice So Nice
+    await ChatMessage.create({
+      rolls:   [foundryRoll],
+      flavor:  this._initiativeFlavor(initResult, dex, wits, initCtx),
+      speaker: ChatMessage.getSpeaker({ actor: game.actors.get(id) ?? null }),
+    });
+  }
+
+  async _rollAllInitiativeWithDisplay() {
+    for (const id of this.session.participants.keys()) {
+      await this._rollInitiativeWithDisplay(id);
+    }
+  }
+
+  /**
+   * Baut das Flavor-HTML für eine Initiative-Nachricht.
+   * Zeigt Attribut + Attribut + aktivierte Disziplinkräfte + Ergebnis.
+   */
+  _initiativeFlavor(initResult, dex, wits, initCtx) {
+    const parts = [
+      `<strong>Geschicklichkeit</strong>&nbsp;${dex}`,
+      `<strong>Geistesgegenwart</strong>&nbsp;${wits}`,
+    ];
+    for (const pw of (initCtx.appliedPowers ?? [])) {
+      parts.push(`<em class="vtm-power-bonus">${pw}</em>`);
+    }
+    const poolLine = parts.join(' + ') + ` = ${initResult.pool}&nbsp;Würfel`;
+    const hungerNote = initCtx.hungerDice > 0
+      ? ` <span class="vtm-hunger-note">(${initCtx.hungerDice}× Hunger)</span>`
+      : '';
+
+    let resultLine = `${initResult.successes}&nbsp;Erfolge`;
+    if ((initResult.initiativeBonus ?? 0) > 0) {
+      resultLine += ` +${initResult.initiativeBonus}&nbsp;Bonus`;
+    }
+    resultLine += ` → Initiative: <strong>${initResult.total}</strong>`;
+
+    if (initResult.roll?.messyCritical)  resultLine += ' <span class="vtm-messy-label">💀 Messy Critical</span>';
+    if (initResult.roll?.bestialFailure) resultLine += ' <span class="vtm-bestial-label">⚠ Bestial Failure</span>';
+
+    return `
+      <div class="vtm-initiative-flavor">
+        <div class="vtm-initiative-header">
+          <i class="fas fa-dice-d10"></i> Initiative — ${initResult.name}
+        </div>
+        <div class="vtm-pool-line">${poolLine}${hungerNote}</div>
+        <div class="vtm-result-line">${resultLine}</div>
+      </div>`;
   }
 
   // ─── Resolution (nur GM) ──────────────────────────────────────────────────

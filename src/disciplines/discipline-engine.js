@@ -39,13 +39,14 @@ export class DisciplineEngine {
   // Output context: { pool, hungerDice, initiativeBonus, surpriseResistance }
 
   applyBeforeInitiative(participant, context, activePowers = []) {
-    const ctx = { ...context, initiativeBonus: 0, surpriseResistance: false };
+    const ctx = { ...context, initiativeBonus: 0, surpriseResistance: false, appliedPowers: [] };
 
     for (const { power } of this._powers(participant, 'beforeInitiative', activePowers)) {
       const e = power.effect;
       if (e.diceBonus)          ctx.pool += e.diceBonus;
       if (e.initiativeBonus)    ctx.initiativeBonus += Number(e.initiativeBonus);
       if (e.surpriseResistance) ctx.surpriseResistance = true;
+      ctx.appliedPowers.push(power.power);
     }
 
     ctx.pool      = Math.max(1, ctx.pool);
