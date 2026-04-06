@@ -396,11 +396,13 @@ export class CombatModal extends Application {
       if (bd.impaired      > 0) parts.push(`Beeinträchtigt&thinsp;-${bd.impaired}`);
       if (bd.statusPenalty > 0) parts.push(`Status&thinsp;-${bd.statusPenalty}`);
       for (const pw of (bd.appliedPowers ?? [])) parts.push(`<em class="vtm-power-bonus">${pw}</em>`);
-      return parts.join(' + ')
-        + ` = ${bd.total}&thinsp;Würfel`
-        + (bd.hungerDice > 0
-            ? ` <span class="vtm-hunger-note">(${bd.hungerDice}× Hunger)</span>`
-            : '');
+      let line = parts.join(' + ') + ` = ${bd.total}&thinsp;Würfel`;
+      if (bd.splitPool) {
+        line += ` <span class="vtm-split-pool" title="Basispool ${bd.baseTotal}, halbiert weil offensiv gebunden">`;
+        line += `(½&thinsp;gebunden)</span>`;
+      }
+      if (bd.hungerDice > 0) line += ` <span class="vtm-hunger-note">(${bd.hungerDice}× Hunger)</span>`;
+      return line;
     };
 
     // ── Je Aktion eine eigene Chat-Nachricht ─────────────────────────────────

@@ -76,10 +76,14 @@ export class DiceRollPopup extends Application {
       `${breakdown.attrName}(${breakdown.attrVal})`,
       `${breakdown.skillName}(${breakdown.skillVal})`,
     ];
-    if (breakdown.potenceBonus)  parts.push(`Potenz(${breakdown.potenceBonus})`);
-    if (breakdown.celerityBonus) parts.push(`Celerity(1)`);
-    if (breakdown.impaired > 0)  parts.push(`Beeinträchtigt(-${breakdown.impaired})`);
-    return `${parts.join(' + ')} = ${breakdown.total} Würfel (${breakdown.hungerDice}× Hunger)`;
+    for (const pw of (breakdown.appliedPowers ?? [])) parts.push(`[${pw}]`);
+    if (breakdown.impaired      > 0) parts.push(`Beeinträchtigt(-${breakdown.impaired})`);
+    if (breakdown.statusPenalty > 0) parts.push(`Status(-${breakdown.statusPenalty})`);
+
+    let line = `${parts.join(' + ')} = ${breakdown.total} Würfel`;
+    if (breakdown.splitPool) line += ` (½ gebunden, Basis ${breakdown.baseTotal})`;
+    if (breakdown.hungerDice > 0) line += ` (${breakdown.hungerDice}× Hunger)`;
+    return line;
   }
 
   activateListeners(html) {

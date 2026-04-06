@@ -47,6 +47,13 @@ export const ActionType = Object.freeze({
   PASS:           'pass',
 });
 
+// Aktionstypen, bei denen der Charakter offensiv gebunden ist →
+// reaktiver Verteidigungspool wird halbiert (Split-Pool-Regel).
+const OFFENSIVE_ACTION_TYPES = new Set([
+  'attack_unarmed', 'attack_light', 'attack_heavy',
+  'attack_ranged',  'attack_aimed', 'attack_melee',
+]);
+
 export const DamageType = Object.freeze({
   SUPERFICIAL: 'superficial',
   AGGRAVATED:  'aggravated',
@@ -462,9 +469,13 @@ export class CombatSession {
     let defBreakdown     = null;
 
     if (target && !this._isIncapacitated(target) && target.intent) {
-      const ti = target.intent;
-      if (ti.actionType === ActionType.DODGE || ti.actionType === ActionType.DEFEND) {
-        defBreakdown     = this._getDefensePool(target, ti);
+      const ti          = target.intent;
+      const isReactive  = ti.actionType === ActionType.DODGE || ti.actionType === ActionType.DEFEND;
+      const isOffensive = OFFENSIVE_ACTION_TYPES.has(ti.actionType);
+
+      if (isReactive || isOffensive) {
+        // Offensiv gebundener Charakter → reaktiver Halbpool (Split-Pool-Regel)
+        defBreakdown     = this._getDefensePool(target, ti, isOffensive);
         defenseRoll      = rollFn(defBreakdown.total, defBreakdown.hungerDice);
         defenseSuccesses = defenseRoll.successes;
       }
@@ -612,9 +623,14 @@ export class CombatSession {
   // @returns {{ total, hungerDice, attrName, attrVal, skillName, skillVal,
   //             fortitude, impaired }}
 
-  _getDefensePool(target, intent) {
+  /**
+   * @param {Participant} target
+   * @param {Intent}      intent
+   * @param {boolean}     splitPool  true wenn Ziel offensiv gebunden ist
+   *                                 → voller Basispool wird halbiert (min 1)
+   */
+  _getDefensePool(target, intent, splitPool = false) {
     // Fortitude wirkt NICHT auf den Verteidigungspool — nur auf Schadensreduktion
-    // (V5-korrekt: Toughness greift bei beforeDamageApply, nicht beim Verteidigungswurf)
     const isDodge = intent.actionType === ActionType.DODGE;
 
     const attrVal  = target.attributes.dexterity;
@@ -633,11 +649,14 @@ export class CombatSession {
 
     const statusPenalty = this.disciplineEngine.getStatusPoolPenalty(target);
     const impaired      = target.statusEffects.includes(StatusEffect.IMPAIRED) ? 2 : 0;
-    const total         = Math.max(1, attrVal + skillVal - impaired - statusPenalty);
-    const hungerDice    = Math.min(target.hunger ?? 0, total);
+    const baseTotal     = Math.max(1, attrVal + skillVal - impaired - statusPenalty);
+
+    // Split-Pool: offensiv gebundener Charakter verteidigt reaktiv mit ½ Pool
+    const total      = splitPool ? Math.max(1, Math.floor(baseTotal / 2)) : baseTotal;
+    const hungerDice = Math.min(target.hunger ?? 0, total);
 
     return { total, hungerDice, attrName, attrVal, skillName, skillVal,
-             impaired, statusPenalty };
+             impaired, statusPenalty, splitPool, baseTotal };
   }
 
   // ─── Discipline resolution ────────────────────────────────────────────────
