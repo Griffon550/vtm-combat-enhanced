@@ -1,21 +1,32 @@
 /**
  * Action Dialog
  * ─────────────────────────────────────────────────────────────────────────────
- * Popup that lets a player choose their intent for the current round.
- * Extends Foundry's Application — only runs inside Foundry.
+ * Zeigt dem Spieler alle wählbaren Aktionen + aktivierbare Disziplinkräfte.
+ * Baut `intent.activePowers[]` statt alter `modifiers`-Objekte.
  */
 
-import { ActionType } from '../combat-engine.js';
+import { ActionType }        from '../combat-engine.js';
+import { DISCIPLINE_POWERS } from '../disciplines/discipline-powers.js';
 
 const MODULE_ID = 'vtm-combat-enhanced';
 const TEMPLATE  = `modules/${MODULE_ID}/templates/action-dialog.html`;
 
+// Angriffs-Aktionstypen für Template-Bedingung
+const ATTACK_TYPES = new Set([
+  ActionType.ATTACK_UNARMED,
+  ActionType.ATTACK_LIGHT,
+  ActionType.ATTACK_HEAVY,
+  ActionType.ATTACK_RANGED,
+  ActionType.ATTACK_AIMED,
+  ActionType.ATTACK_MELEE,
+]);
+
 export class ActionDialog extends Application {
   /**
    * @param {Object} params
-   * @param {Participant}   params.participant  The actor choosing an action
-   * @param {Participant[]} params.targets       All possible targets
-   * @param {(intent: Intent) => void} params.onConfirm  Called with the chosen intent
+   * @param {Participant}   params.participant  Charakter, der wählt
+   * @param {Participant[]} params.targets       Alle verfügbaren Ziele
+   * @param {(intent: Intent) => void} params.onConfirm
    */
   constructor({ participant, targets, onConfirm }, options = {}) {
     super(options);
@@ -23,137 +34,162 @@ export class ActionDialog extends Application {
     this.targets     = targets;
     this.onConfirm   = onConfirm;
 
-    // Draft intent — mutated as the user interacts with the form
     this._intent = {
-      actionType:     ActionType.ATTACK_MELEE,
-      targetId:       targets.find(t => t.side !== participant.side)?.id ?? targets[0]?.id ?? null,
-      modifiers:      {},
+      actionType:     ActionType.ATTACK_UNARMED,
+      targetId:       targets.find(t => t.side !== participant.side)?.id ?? null,
+      activePowers:   [],   // aktivierte nicht-passive Kräfte
       disciplineUsed: null,
       specialAction:  '',
-      weapon: {
-        name:        '',
-        damageBonus: 0,
-        damageType:  null, // null = default, 'aggravated' = override
-      },
+      weapon:         null, // Eintrag aus WEAPON_TABLE oder null
     };
   }
 
-  // ─── Foundry Application overrides ────────────────────────────────────────
-
   static get defaultOptions() {
     return foundry.utils.mergeObject(super.defaultOptions, {
-      id:       'vtm-action-dialog',
-      title:    'Choose Action',
-      template: TEMPLATE,
-      width:    420,
-      height:   'auto',
-      classes:  ['vtm-action-dialog'],
+      id:        'vtm-action-dialog',
+      title:     'Aktion wählen',
+      template:  TEMPLATE,
+      width:     440,
+      height:    'auto',
+      classes:   ['vtm-action-dialog'],
       resizable: false,
     });
   }
 
   getData() {
-    const hasDisciplines = Object.values(this.participant.disciplines ?? {}).some(v => v > 0);
+    const at = this._intent.actionType;
+
+    // ── Aktivierbare und passive Kräfte trennen ──────────────────────────────
+    const activatablePowers = [];
+    const passivePowers     = [];
+
+    for (const [discName, discData] of Object.entries(this.participant.disciplines ?? {})) {
+      const rating      = typeof discData === 'object' ? (discData.rating ?? 0)      : (discData ?? 0);
+      const knownPowers = typeof discData === 'object' ? (discData.knownPowers ?? []) : [];
+      if (!rating) continue;
+
+      for (const powerName of knownPowers) {
+        const power = DISCIPLINE_POWERS[powerName];
+        if (!power) continue;
+
+        if (power.activation === 'passive') {
+          passivePowers.push({
+            name:       powerName,
+            discipline: discName,
+            level:      power.level,
+            timing:     power.timing,
+            notes:      power.notes,
+          });
+        } else {
+          activatablePowers.push({
+            name:       powerName,
+            discipline: discName,
+            level:      power.level,
+            type:       power.type,
+            activation: power.activation,
+            notes:      power.notes,
+            checked:    this._intent.activePowers.includes(powerName),
+          });
+        }
+      }
+    }
 
     return {
-      participant: this.participant,
-      targets:     this.targets.filter(t => t.id !== this.participant.id),
-      intent:      this._intent,
-      actionTypes: ActionType,
+      participant:      this.participant,
+      targets:          this.targets.filter(t => t.id !== this.participant.id),
+      intent:           this._intent,
 
-      // Only show disciplines the character actually has
-      disciplines: Object.entries(this.participant.disciplines ?? {})
-        .filter(([, v]) => v > 0)
-        .map(([key, value]) => ({
-          key,
-          value,
-          label: key.charAt(0).toUpperCase() + key.slice(1),
-        })),
+      // Template-Flags
+      isAttack:         ATTACK_TYPES.has(at),
+      isDefensive:      at === ActionType.DEFEND || at === ActionType.DODGE,
+      isDiscipline:     at === ActionType.DISCIPLINE,
+      isSpecial:        at === ActionType.SPECIAL,
 
-      hasDisciplines,
-
-      // Derived flags for template conditionals
-      isAttack:     this._intent.actionType === ActionType.ATTACK_MELEE ||
-                    this._intent.actionType === ActionType.ATTACK_RANGED,
-      isDiscipline: this._intent.actionType === ActionType.DISCIPLINE,
-      isSpecial:    this._intent.actionType === ActionType.SPECIAL,
-      isDefensive:  this._intent.actionType === ActionType.DEFEND ||
-                    this._intent.actionType === ActionType.DODGE,
+      // Disziplinen (für altes Discipline-Picker-Feld, falls noch genutzt)
+      hasDisciplines:   activatablePowers.length > 0 || passivePowers.length > 0,
+      activatablePowers,
+      passivePowers,
     };
   }
 
   activateListeners(html) {
     super.activateListeners(html);
 
-    // ── Action type selection ──────────────────────────────────────────────
+    // ── Aktionstyp ────────────────────────────────────────────────────────────
     html.find('[name="actionType"]').on('change', ev => {
-      this._intent.actionType = ev.target.value;
-      // Reset discipline / special when switching types
+      this._intent.actionType    = ev.target.value;
       this._intent.disciplineUsed = null;
       this._intent.specialAction  = '';
       this.render(false);
     });
 
-    // ── Target selection ───────────────────────────────────────────────────
+    // ── Ziel ──────────────────────────────────────────────────────────────────
     html.find('[name="targetId"]').on('change', ev => {
       this._intent.targetId = ev.target.value || null;
     });
 
-    // ── Discipline picker ──────────────────────────────────────────────────
+    // ── Disziplinkraft aktivieren/deaktivieren ────────────────────────────────
+    html.find('[name="activePower"]').on('change', ev => {
+      const name = ev.target.value;
+      if (ev.target.checked) {
+        if (!this._intent.activePowers.includes(name)) {
+          this._intent.activePowers.push(name);
+        }
+      } else {
+        this._intent.activePowers = this._intent.activePowers.filter(p => p !== name);
+      }
+    });
+
+    // ── Discipline-Picker (für DISCIPLINE-Aktion) ─────────────────────────────
     html.find('[name="disciplineUsed"]').on('change', ev => {
       this._intent.disciplineUsed = ev.target.value || null;
     });
 
-    // ── Modifiers ──────────────────────────────────────────────────────────
-    html.find('[name="celerity"]').on('change', ev => {
-      this._intent.modifiers.celerity = ev.target.checked;
+    // ── Waffe (freies Textfeld) ───────────────────────────────────────────────
+    html.find('[name="weaponName"]').on('input', ev => {
+      this._intent.weapon = this._intent.weapon ?? {};
+      this._intent.weapon.name = ev.target.value;
+    });
+    html.find('[name="weaponDamageBonus"]').on('change', ev => {
+      this._intent.weapon = this._intent.weapon ?? {};
+      this._intent.weapon.damageBonus = parseInt(ev.target.value) || 0;
+    });
+    html.find('[name="weaponDamageType"]').on('change', ev => {
+      this._intent.weapon = this._intent.weapon ?? {};
+      this._intent.weapon.damageType = ev.target.value || null;
     });
 
-    html.find('[name="potence"]').on('change', ev => {
-      this._intent.modifiers.potence = parseInt(ev.target.value) || 0;
-    });
-
-    html.find('[name="fortitude"]').on('change', ev => {
-      this._intent.modifiers.fortitude = parseInt(ev.target.value) || 0;
-    });
-
-    // ── Special action text ────────────────────────────────────────────────
+    // ── Sonderaktion ──────────────────────────────────────────────────────────
     html.find('[name="specialAction"]').on('input', ev => {
       this._intent.specialAction = ev.target.value;
     });
 
-    html.find('[name="weaponName"]').on('input', ev => {
-      this._intent.weapon.name = ev.target.value;
-    });
-    html.find('[name="weaponDamageBonus"]').on('change', ev => {
-      this._intent.weapon.damageBonus = parseInt(ev.target.value) || 0;
-    });
-    html.find('[name="weaponDamageType"]').on('change', ev => {
-      this._intent.weapon.damageType = ev.target.value || null;
-    });
-
-    // ── Buttons ────────────────────────────────────────────────────────────
-    html.find('[data-action="confirm"]').on('click', () => {
-      this._confirmIntent();
-    });
-
-    html.find('[data-action="cancel"]').on('click', () => {
-      this.close();
-    });
+    // ── Buttons ───────────────────────────────────────────────────────────────
+    html.find('[data-action="confirm"]').on('click', () => this._confirmIntent());
+    html.find('[data-action="cancel"]').on('click',  () => this.close());
   }
 
   _confirmIntent() {
-    // Basic validation
     if (this._intent.actionType === ActionType.DISCIPLINE && !this._intent.disciplineUsed) {
-      ui.notifications?.warn('Please choose a discipline.');
+      ui.notifications?.warn('Bitte eine Disziplin wählen.');
       return;
     }
     if (this._intent.actionType === ActionType.SPECIAL && !this._intent.specialAction?.trim()) {
-      ui.notifications?.warn('Please describe the special action.');
+      ui.notifications?.warn('Bitte die Sonderaktion beschreiben.');
       return;
     }
 
-    this.onConfirm({ ...this._intent, modifiers: { ...this._intent.modifiers } });
+    // Bereinige leere Waffeneinträge
+    const weapon = this._intent.weapon;
+    const cleanWeapon = (weapon?.name?.trim())
+      ? { name: weapon.name.trim(), damageBonus: weapon.damageBonus ?? 0, damageType: weapon.damageType ?? null }
+      : null;
+
+    this.onConfirm({
+      ...this._intent,
+      activePowers: [...this._intent.activePowers],
+      weapon:       cleanWeapon,
+    });
     this.close();
   }
 }

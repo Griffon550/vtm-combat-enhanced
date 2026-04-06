@@ -8,36 +8,41 @@
 
   <form class="vtm-action-form" autocomplete="off">
 
-    {{!-- ── Action type ── --}}
+    {{!-- ── Aktionstyp ── --}}
     <div class="vtm-form-group">
-      <label for="vtm-actionType">Action Type</label>
+      <label for="vtm-actionType">Aktion</label>
       <select id="vtm-actionType" name="actionType">
-        <optgroup label="Attack">
-          <option value="attack_melee"  {{#eq intent.actionType "attack_melee"}}selected{{/eq}}>Melee Attack</option>
-          <option value="attack_ranged" {{#eq intent.actionType "attack_ranged"}}selected{{/eq}}>Ranged Attack</option>
+        <optgroup label="Nahkampf">
+          <option value="attack_unarmed" {{#eq intent.actionType "attack_unarmed"}}selected{{/eq}}>Unbewaffnet (STR + Raufen)</option>
+          <option value="attack_light"   {{#eq intent.actionType "attack_light"  }}selected{{/eq}}>Leichte Waffe (GES + Nahkampf)</option>
+          <option value="attack_heavy"   {{#eq intent.actionType "attack_heavy"  }}selected{{/eq}}>Schwere Waffe (STR + Nahkampf)</option>
         </optgroup>
-        <optgroup label="Defense">
-          <option value="defend" {{#eq intent.actionType "defend"}}selected{{/eq}}>Defend (Parry)</option>
-          <option value="dodge"  {{#eq intent.actionType "dodge"}}selected{{/eq}}>Dodge</option>
+        <optgroup label="Fernkampf">
+          <option value="attack_ranged"  {{#eq intent.actionType "attack_ranged" }}selected{{/eq}}>Fernkampf (GES + Schusswaffen)</option>
+          <option value="attack_aimed"   {{#eq intent.actionType "attack_aimed"  }}selected{{/eq}}>Gezielt (WITS + Schusswaffen)</option>
+        </optgroup>
+        <optgroup label="Verteidigung">
+          <option value="defend" {{#eq intent.actionType "defend"}}selected{{/eq}}>Parieren (GES + Nahkampf/Raufen)</option>
+          <option value="dodge"  {{#eq intent.actionType "dodge" }}selected{{/eq}}>Ausweichen (GES + Sport)</option>
         </optgroup>
         {{#if hasDisciplines}}
-        <optgroup label="Discipline">
-          <option value="discipline" {{#eq intent.actionType "discipline"}}selected{{/eq}}>Use Discipline</option>
+        <optgroup label="Disziplin">
+          <option value="discipline" {{#eq intent.actionType "discipline"}}selected{{/eq}}>Disziplin einsetzen</option>
         </optgroup>
         {{/if}}
-        <optgroup label="Other">
-          <option value="special" {{#eq intent.actionType "special"}}selected{{/eq}}>Special Action</option>
-          <option value="pass"    {{#eq intent.actionType "pass"}}selected{{/eq}}>Pass / Wait</option>
+        <optgroup label="Sonstiges">
+          <option value="special" {{#eq intent.actionType "special"}}selected{{/eq}}>Sonderaktion</option>
+          <option value="pass"    {{#eq intent.actionType "pass"   }}selected{{/eq}}>Passen / Warten</option>
         </optgroup>
       </select>
     </div>
 
-    {{!-- ── Target ── --}}
+    {{!-- ── Ziel ── --}}
     {{#unless isDefensive}}
     <div class="vtm-form-group">
-      <label for="vtm-targetId">Target</label>
+      <label for="vtm-targetId">Ziel</label>
       <select id="vtm-targetId" name="targetId">
-        <option value="">— No target —</option>
+        <option value="">— Kein Ziel —</option>
         {{#each targets}}
           <option value="{{id}}" {{#eq this.id ../intent.targetId}}selected{{/eq}}>
             {{name}} ({{side}})
@@ -47,94 +52,84 @@
     </div>
     {{/unless}}
 
-    {{!-- ── Discipline picker ── --}}
-    {{#if isDiscipline}}
-    <div class="vtm-form-group">
-      <label for="vtm-disciplineUsed">Discipline</label>
-      <select id="vtm-disciplineUsed" name="disciplineUsed">
-        <option value="">— Choose —</option>
-        {{#each disciplines}}
-          <option value="{{key}}" {{#eq key ../intent.disciplineUsed}}selected{{/eq}}>
-            {{label}} (●●●●● → {{value}})
-          </option>
-        {{/each}}
-      </select>
-    </div>
-    {{/if}}
-
-    {{!-- ── Special action text ── --}}
-    {{#if isSpecial}}
-    <div class="vtm-form-group">
-      <label for="vtm-specialAction">Describe action</label>
-      <input type="text" id="vtm-specialAction" name="specialAction"
-             value="{{intent.specialAction}}" placeholder="e.g. Grapple, disarm, intimidate…" />
-    </div>
-    {{/if}}
-
-    {{!-- ── Modifiers (attack / discipline) ── --}}
+    {{!-- ── Waffe (für Angriffe) ── --}}
     {{#if isAttack}}
-    {{!-- Waffe --}}
     <fieldset class="vtm-modifiers">
-      <legend>Waffe (optional)</legend>
-      <div class="vtm-form-group">
-        <label for="vtm-weaponName">Waffenname</label>
-        <input type="text" id="vtm-weaponName" name="weaponName"
-               value="{{intent.weapon.name}}" placeholder="z.B. Messer, Pistole, Kampfaxt…" />
+      <legend>Waffe <span class="vtm-hint">(optional)</span></legend>
+      <div class="vtm-modifier-row">
+        <label>Name</label>
+        <input type="text" name="weaponName"
+               value="{{intent.weapon.name}}" placeholder="z.B. Messer, Pistole, Axt…" />
       </div>
       <div class="vtm-modifier-row">
         <label>Schadensbonus</label>
         <input type="number" name="weaponDamageBonus" min="0" max="10"
                value="{{intent.weapon.damageBonus}}" class="vtm-number-input" />
       </div>
-      <div class="vtm-form-group">
-        <label for="vtm-weaponDamageType">Schadenstyp</label>
-        <select id="vtm-weaponDamageType" name="weaponDamageType">
+      <div class="vtm-modifier-row">
+        <label>Schadenstyp</label>
+        <select name="weaponDamageType">
           <option value="">Standard (oberflächlich)</option>
           <option value="aggravated" {{#eq intent.weapon.damageType "aggravated"}}selected{{/eq}}>
-            Aggraviiert (z.B. Feuer, silberne Waffe)
+            Aggraviiert (Feuer, Silber…)
           </option>
         </select>
       </div>
     </fieldset>
+    {{/if}}
 
-    {{!-- Disziplin-Modifikatoren --}}
-    <fieldset class="vtm-modifiers">
-      <legend>Disziplin-Modifikatoren</legend>
+    {{!-- ── Discipline-Picker (nur für DISCIPLINE-Aktion) ── --}}
+    {{#if isDiscipline}}
+    <div class="vtm-form-group">
+      <label for="vtm-disciplineUsed">Disziplin</label>
+      <select id="vtm-disciplineUsed" name="disciplineUsed">
+        <option value="">— Wählen —</option>
+        {{#each activatablePowers}}
+          <option value="{{name}}" {{#eq name ../intent.disciplineUsed}}selected{{/eq}}>
+            {{name}} ({{discipline}}, Stufe {{level}})
+          </option>
+        {{/each}}
+      </select>
+    </div>
+    {{/if}}
 
-      {{#if participant.disciplines.celerity}}
-      <div class="vtm-modifier-row">
-        <label>
-          <input type="checkbox" name="celerity" {{#if intent.modifiers.celerity}}checked{{/if}} />
-          Celerity (+1 Würfel)
+    {{!-- ── Sonderaktion ── --}}
+    {{#if isSpecial}}
+    <div class="vtm-form-group">
+      <label for="vtm-specialAction">Aktion beschreiben</label>
+      <input type="text" id="vtm-specialAction" name="specialAction"
+             value="{{intent.specialAction}}" placeholder="z.B. Entwaffnen, Grapple, Einschüchtern…" />
+    </div>
+    {{/if}}
+
+    {{!-- ── Aktivierbare Disziplinkräfte ── --}}
+    {{#if activatablePowers.length}}
+    <fieldset class="vtm-modifiers vtm-powers-section">
+      <legend>Disziplinkräfte aktivieren <span class="vtm-hint">(Rouse Check / Contest)</span></legend>
+      {{#each activatablePowers}}
+      <div class="vtm-modifier-row vtm-power-row">
+        <label title="{{notes}}">
+          <input type="checkbox" name="activePower" value="{{name}}"
+                 {{#if checked}}checked{{/if}} />
+          <span class="vtm-power-name">{{name}}</span>
+          <span class="vtm-power-meta">{{discipline}} Stufe {{level}} · {{activation}}</span>
         </label>
       </div>
-      {{/if}}
-
-      {{#if participant.disciplines.potence}}
-      <div class="vtm-modifier-row">
-        <label>Potenz Schadensbonus</label>
-        <input type="number" name="potence" min="0"
-               max="{{participant.disciplines.potence}}"
-               value="{{intent.modifiers.potence}}" class="vtm-number-input" />
-      </div>
-      {{/if}}
-
+      {{/each}}
     </fieldset>
     {{/if}}
 
-    {{#if isDefensive}}
-    <fieldset class="vtm-modifiers">
-      <legend>Disziplin-Modifikatoren</legend>
-
-      {{#if participant.disciplines.fortitude}}
-      <div class="vtm-modifier-row">
-        <label>Fortitude Schadensreduktion</label>
-        <input type="number" name="fortitude" min="0"
-               max="{{participant.disciplines.fortitude}}"
-               value="{{intent.modifiers.fortitude}}" class="vtm-number-input" />
+    {{!-- ── Passive Kräfte (Info) ── --}}
+    {{#if passivePowers.length}}
+    <fieldset class="vtm-modifiers vtm-passive-section">
+      <legend>Immer aktiv <span class="vtm-hint">(passiv)</span></legend>
+      {{#each passivePowers}}
+      <div class="vtm-passive-row" title="{{notes}}">
+        <i class="fas fa-circle vtm-passive-dot"></i>
+        <span class="vtm-power-name">{{name}}</span>
+        <span class="vtm-power-meta">{{discipline}} Stufe {{level}}</span>
       </div>
-      {{/if}}
-
+      {{/each}}
     </fieldset>
     {{/if}}
 
@@ -142,9 +137,9 @@
 
   {{!-- ── Buttons ── --}}
   <div class="vtm-dialog-footer">
-    <button data-action="cancel" class="vtm-btn vtm-btn-ghost">Cancel</button>
+    <button data-action="cancel"  class="vtm-btn vtm-btn-ghost">Abbrechen</button>
     <button data-action="confirm" class="vtm-btn vtm-btn-primary">
-      <i class="fas fa-check"></i> Confirm
+      <i class="fas fa-check"></i> Bestätigen
     </button>
   </div>
 

@@ -45,6 +45,8 @@
  * Edit FIELD_MAP. Each entry is (actor) => value with a safe fallback.
  */
 
+import { KNOWN_POWER_NAMES } from '../disciplines/discipline-powers.js';
+
 // ─── wod5e trait lookup ───────────────────────────────────────────────────────
 
 /**
@@ -105,6 +107,28 @@ function wod5eDiscipline(actor, discName) {
 }
 
 /**
+ * Liest die knownPowers (bekannte Kräfte) einer Disziplin aus wod5e-Items.
+ * Mappt wod5e-Itemnamen auf kanonische DISCIPLINE_POWERS-Schlüssel.
+ * Unbekannte Namen werden ignoriert.
+ *
+ * @param {Actor}  actor
+ * @param {string} discName  lowercase Disziplinname
+ * @param {Set<string>} knownPowerNames  aus discipline-powers.js
+ * @returns {string[]}
+ */
+function wod5eKnownPowers(actor, discName, knownPowerNames) {
+  if (!actor.items || !knownPowerNames) return [];
+
+  return actor.items
+    .filter(i =>
+      i.type === 'power' &&
+      i.system?.discipline?.toLowerCase() === discName
+    )
+    .map(i => i.name?.trim())
+    .filter(name => name && knownPowerNames.has(name));
+}
+
+/**
  * wod5e remaining track value: max − aggravated − superficial
  */
 function wod5eRemaining(trackObj, fallbackMax = 5) {
@@ -153,14 +177,15 @@ const FIELD_MAP = {
   athletics: a => wod5eSkill(a, 'athletics', 0),
   stealth:   a => wod5eSkill(a, 'stealth',   0),
 
-  // ── Disciplines ────────────────────────────────────────────────────────────
-  celerity:  a => wod5eDiscipline(a, 'celerity'),
-  potence:   a => wod5eDiscipline(a, 'potence'),
-  fortitude: a => wod5eDiscipline(a, 'fortitude'),
-  dominate:  a => wod5eDiscipline(a, 'dominate'),
-  presence:  a => wod5eDiscipline(a, 'presence'),
-  auspex:    a => wod5eDiscipline(a, 'auspex'),
-  obfuscate: a => wod5eDiscipline(a, 'obfuscate'),
+  // ── Disciplines (gibt { rating, knownPowers } zurück) ──────────────────────
+  celerity:  a => ({ rating: wod5eDiscipline(a, 'celerity'),  knownPowers: wod5eKnownPowers(a, 'celerity',  KNOWN_POWER_NAMES) }),
+  potence:   a => ({ rating: wod5eDiscipline(a, 'potence'),   knownPowers: wod5eKnownPowers(a, 'potence',   KNOWN_POWER_NAMES) }),
+  fortitude: a => ({ rating: wod5eDiscipline(a, 'fortitude'), knownPowers: wod5eKnownPowers(a, 'fortitude', KNOWN_POWER_NAMES) }),
+  dominate:  a => ({ rating: wod5eDiscipline(a, 'dominate'),  knownPowers: wod5eKnownPowers(a, 'dominate',  KNOWN_POWER_NAMES) }),
+  presence:  a => ({ rating: wod5eDiscipline(a, 'presence'),  knownPowers: wod5eKnownPowers(a, 'presence',  KNOWN_POWER_NAMES) }),
+  protean:   a => ({ rating: wod5eDiscipline(a, 'protean'),   knownPowers: wod5eKnownPowers(a, 'protean',   KNOWN_POWER_NAMES) }),
+  auspex:    a => ({ rating: wod5eDiscipline(a, 'auspex'),    knownPowers: wod5eKnownPowers(a, 'auspex',    KNOWN_POWER_NAMES) }),
+  obfuscate: a => ({ rating: wod5eDiscipline(a, 'obfuscate'), knownPowers: wod5eKnownPowers(a, 'obfuscate', KNOWN_POWER_NAMES) }),
 };
 
 // ─── Path helpers ─────────────────────────────────────────────────────────────
@@ -258,12 +283,14 @@ export class ActorAdapter {
         firearms:  this.getSkill('firearms'),
         athletics: this.getSkill('athletics'),
       },
+      // Disziplinen als { rating, knownPowers[] } — für DisciplineEngine
       disciplines: {
         celerity:  this.getDiscipline('celerity'),
         potence:   this.getDiscipline('potence'),
         fortitude: this.getDiscipline('fortitude'),
         dominate:  this.getDiscipline('dominate'),
         presence:  this.getDiscipline('presence'),
+        protean:   this.getDiscipline('protean'),
         auspex:    this.getDiscipline('auspex'),
         obfuscate: this.getDiscipline('obfuscate'),
       },
