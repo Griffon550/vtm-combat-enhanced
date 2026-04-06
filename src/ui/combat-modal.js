@@ -260,37 +260,53 @@ export class CombatModal extends Application {
   }
 
   /**
-   * Baut das Flavor-HTML für eine Initiative-Nachricht.
-   * Zeigt Attribut + Attribut + aktivierte Disziplinkräfte + Ergebnis.
+   * Baut das Flavor-HTML für eine Initiative-Chat-Nachricht.
+   * Zeigt: Attribut + Attribut + Boni, Würfelschale (Einzelwerte, farbig),
+   * und Endergebnis mit Initiative-Score.
    */
   _initiativeFlavor(initResult, dex, wits, initCtx) {
+    // ── Pool-Aufschlüsselung ─────────────────────────────────────────────────
     const parts = [
-      `<strong>Geschicklichkeit</strong>&nbsp;${dex}`,
-      `<strong>Geistesgegenwart</strong>&nbsp;${wits}`,
+      `<strong>Geschicklichkeit</strong>&thinsp;${dex}`,
+      `<strong>Geistesgegenwart</strong>&thinsp;${wits}`,
     ];
     for (const pw of (initCtx.appliedPowers ?? [])) {
       parts.push(`<em class="vtm-power-bonus">${pw}</em>`);
     }
-    const poolLine = parts.join(' + ') + ` = ${initResult.pool}&nbsp;Würfel`;
-    const hungerNote = initCtx.hungerDice > 0
-      ? ` <span class="vtm-hunger-note">(${initCtx.hungerDice}× Hunger)</span>`
-      : '';
+    const poolLine = parts.join(' + ')
+      + ` = ${initResult.pool}&thinsp;Würfel`
+      + (initCtx.hungerDice > 0
+          ? ` <span class="vtm-hunger-note">(${initCtx.hungerDice}× Hunger)</span>`
+          : '');
 
-    let resultLine = `${initResult.successes}&nbsp;Erfolge`;
+    // ── Würfelboxen mit Einzelwerten ─────────────────────────────────────────
+    const dieCls = (v, isHunger) => {
+      if (v === 10) return isHunger ? 'die-hunger-crit' : 'die-crit';
+      if (v === 1  && isHunger) return 'die-bestial';
+      if (v >= 6)  return 'die-success';
+      return 'die-fail';
+    };
+
+    const diceHtml = [
+      ...(initResult.roll?.normalRolls ?? []).map(v =>
+        `<span class="vtm-die ${dieCls(v, false)}" title="Normaler Würfel">${v}</span>`),
+      ...(initResult.roll?.hungerRolls ?? []).map(v =>
+        `<span class="vtm-die vtm-hunger-die ${dieCls(v, true)}" title="Hunger-Würfel">${v}</span>`),
+    ].join('');
+
+    // ── Ergebniszeile ────────────────────────────────────────────────────────
+    let resultLine = `<strong>${initResult.successes}</strong>&thinsp;Erfolge`;
     if ((initResult.initiativeBonus ?? 0) > 0) {
-      resultLine += ` +${initResult.initiativeBonus}&nbsp;Bonus`;
+      resultLine += ` +${initResult.initiativeBonus}&thinsp;Bonus`;
     }
-    resultLine += ` → Initiative: <strong>${initResult.total}</strong>`;
-
+    resultLine += ` &rarr; Initiative:&thinsp;<strong class="vtm-init-score">${initResult.total}</strong>`;
     if (initResult.roll?.messyCritical)  resultLine += ' <span class="vtm-messy-label">💀 Messy Critical</span>';
     if (initResult.roll?.bestialFailure) resultLine += ' <span class="vtm-bestial-label">⚠ Bestial Failure</span>';
 
     return `
       <div class="vtm-initiative-flavor">
-        <div class="vtm-initiative-header">
-          <i class="fas fa-dice-d10"></i> Initiative — ${initResult.name}
-        </div>
-        <div class="vtm-pool-line">${poolLine}${hungerNote}</div>
+        <div class="vtm-pool-line">${poolLine}</div>
+        <div class="vtm-dice-tray vtm-initiative-tray">${diceHtml}</div>
         <div class="vtm-result-line">${resultLine}</div>
       </div>`;
   }
