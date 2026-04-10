@@ -2,7 +2,7 @@
   "id": "vtm-combat-enhanced",
   "title": "VTM Combat Enhanced",
   "description": "Alternative 3-phase combat system for Vampire: The Masquerade V5 with drag & drop actors, intent-based resolution, and discipline support.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "compatibility": {
     "minimum": "11",
     "verified": "13"
@@ -25,6 +25,7 @@
     "systems": [],
     "requires": []
   },
+  "socket": true,
   "flags": {},
   "url": "https://github.com/Griffon550/vtm-combat-enhanced",
   "manifest": "https://raw.githubusercontent.com/Griffon550/vtm-combat-enhanced/main/module.json",

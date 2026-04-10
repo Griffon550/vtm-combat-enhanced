@@ -1,0 +1,73 @@
+{{!-- Willpower Re-roll Dialog --}}
+<div class="vtm-willpower-reroll-wrap">
+
+  <div class="vtm-actor-header">
+    <img src="{{rerollInfo.img}}" class="vtm-dialog-avatar" alt="{{rerollInfo.name}}" />
+    <div>
+      <h3>{{rerollInfo.name}}</h3>
+      <div class="vtm-wp-track">
+        Willpower: <strong>{{rerollInfo.willpowerValue}}</strong> / {{rerollInfo.willpowerMax}}
+      </div>
+    </div>
+  </div>
+
+  <div class="vtm-reroll-hint">
+    1 Willpower ausgeben → bis zu <strong>3 normale Würfel</strong> (keine Hunger-Würfel) neu würfeln.
+  </div>
+
+  <div class="vtm-dice-section">
+
+    {{!-- ── Eigene Würfel ── --}}
+    {{#if hasNormalDice}}
+    <div class="vtm-dice-group">
+      <div class="vtm-dice-group-label">Normale Würfel <span class="vtm-dice-select-hint">(anklicken zum Auswählen)</span></div>
+      <div class="vtm-dice-row">
+        {{#each normalDice}}
+        <label class="vtm-die vtm-die-normal vtm-die-{{cls}}" title="{{value}}">
+          <input type="checkbox" name="reroll-die" value="{{index}}" />
+          <span class="vtm-die-symbol">{{symbol}}</span>
+        </label>
+        {{/each}}
+      </div>
+    </div>
+    {{/if}}
+
+    {{#if hungerDice}}
+    <div class="vtm-dice-group">
+      <div class="vtm-dice-group-label">Hunger-Würfel <span class="vtm-dice-no-reroll">(nicht neu würfelbar)</span></div>
+      <div class="vtm-dice-row">
+        {{#each hungerDice}}
+        <div class="vtm-die vtm-die-hunger vtm-die-{{cls}}" title="{{value}}">
+          <span class="vtm-die-symbol">{{symbol}}</span>
+        </div>
+        {{/each}}
+      </div>
+    </div>
+    {{/if}}
+
+    {{!-- ── Gegner-Würfel (read-only) ── --}}
+    {{#if opponentDice}}
+    <div class="vtm-opponent-section">
+      <div class="vtm-dice-group-label">{{opponentName}}</div>
+      <div class="vtm-dice-row">
+        {{#each opponentDice}}
+        <div class="vtm-die vtm-die-{{cls}} {{#if isHunger}}vtm-die-hunger{{/if}}" title="{{value}}">
+          <span class="vtm-die-symbol">{{symbol}}</span>
+        </div>
+        {{/each}}
+      </div>
+    </div>
+    {{/if}}
+
+  </div>
+
+  <div class="vtm-dialog-footer vtm-reroll-footer">
+    <button data-action="keep" class="vtm-btn vtm-btn-ghost">
+      <i class="fas fa-check"></i> Ergebnis behalten
+    </button>
+    <button data-action="spend" class="vtm-btn vtm-btn-primary" disabled>
+      <i class="fas fa-redo"></i> Willpower ausgeben &amp; neu würfeln<span class="vtm-reroll-count"></span>
+    </button>
+  </div>
+
+</div>

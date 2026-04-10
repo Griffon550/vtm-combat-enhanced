@@ -14,13 +14,15 @@
         <i class="fas fa-running"></i> {{initiative}}
       </span>
     </div>
-    {{!-- GM-only tools --}}
-    {{#if ../isGM}}
+    {{!-- Akteur-Tools: Entfernen für Eigentümer, Seite wechseln nur GM --}}
     <div class="vtm-card-tools">
-      <button data-action="move-side"           class="vtm-icon-btn" title="Seite wechseln"><i class="fas fa-exchange-alt"></i></button>
-      <button data-action="remove-participant"  class="vtm-icon-btn vtm-danger" title="Entfernen"><i class="fas fa-times"></i></button>
+      {{#if ../isGM}}
+        <button data-action="move-side" class="vtm-icon-btn" title="Seite wechseln"><i class="fas fa-exchange-alt"></i></button>
+      {{/if}}
+      {{#if isOwned}}
+        <button data-action="remove-participant" class="vtm-icon-btn vtm-danger" title="Entfernen"><i class="fas fa-times"></i></button>
+      {{/if}}
     </div>
-    {{/if}}
   </div>
 
   {{!-- Tracks --}}
@@ -31,7 +33,7 @@
       <span class="vtm-track-label">HP</span>
       <div class="vtm-track-bar">
         {{#each (healthPips health.max)}}
-          <div class="vtm-pip {{pipClass ../health.value @index}}"></div>
+          <div class="vtm-pip vtm-pip-hp {{trackPipClass ../health @index}}"></div>
         {{/each}}
       </div>
       <span class="vtm-track-value">{{health.value}}/{{health.max}}</span>
@@ -42,7 +44,7 @@
       <span class="vtm-track-label">WP</span>
       <div class="vtm-track-bar">
         {{#each (healthPips willpower.max)}}
-          <div class="vtm-pip vtm-pip-wp {{pipClass ../willpower.value @index}}"></div>
+          <div class="vtm-pip vtm-pip-wp {{trackPipClass ../willpower @index}}"></div>
         {{/each}}
       </div>
       <span class="vtm-track-value">{{willpower.value}}/{{willpower.max}}</span>
@@ -73,13 +75,142 @@
   {{!-- Intent indicator --}}
   {{#if intent}}
     <div class="vtm-intent-indicator">
-      <i class="fas fa-check-circle"></i>
-      <span>{{intentLabel intent.actionType}}</span>
-      {{#if intent.targetId}}
-        <span class="vtm-intent-target">→ {{targetName intent.targetId}}</span>
+      <div class="vtm-intent-row vtm-intent-action">
+        <i class="fas fa-check-circle"></i>
+        <span>{{intentLabel intent.actionType}}</span>
+      </div>
+      {{#if intent.targetName}}
+        <div class="vtm-intent-row vtm-intent-target">
+          <i class="fas fa-arrow-right"></i>
+          <span>{{intent.targetName}}</span>
+        </div>
       {{/if}}
     </div>
   {{/if}}
+
+  {{!-- Cover + Discipline badges --}}
+  <div class="vtm-card-badges">
+    {{#if canToggleCover}}
+      <button data-action="toggle-cover"
+              class="vtm-cover-btn {{#if inCover}}vtm-cover-active{{/if}}"
+              title="{{#if inCover}}In Deckung — klicken zum Aufheben{{else}}Keine Deckung — klicken für Deckung{{/if}}">
+        <i class="fas {{#if inCover}}fa-shield-alt{{else}}fa-user{{/if}}"></i>
+        {{#if inCover}}Deckung{{else}}Offen{{/if}}
+      </button>
+    {{else}}
+      {{!-- Nur anzeigen, nicht klickbar --}}
+      <span class="vtm-cover-indicator {{#if inCover}}vtm-cover-active{{/if}}"
+            title="{{#if inCover}}In Deckung{{else}}Keine Deckung{{/if}}">
+        <i class="fas {{#if inCover}}fa-shield-alt{{else}}fa-user{{/if}}"></i>
+        {{#if inCover}}Deckung{{else}}Offen{{/if}}
+      </span>
+    {{/if}}
+
+    {{#if hasRapidReflexes}}
+      <span class="vtm-discipline-badge vtm-celerity-badge"
+            title="Rapid Reflexes (Celerity 1): Kein -2 Malus gegen Schusswaffen ohne Deckung">
+        <i class="fas fa-bolt"></i> Rapid Reflexes
+      </span>
+    {{/if}}
+
+    {{#if canToggleFleetness}}
+      <button data-action="toggle-fleetness"
+              class="vtm-cover-btn {{#if fleetnessActive}}vtm-fleetness-active{{/if}}"
+              title="{{#if fleetnessActive}}Fleetness aktiv (Rouse Check bei Auflösung) — klicken zum Deaktivieren{{else}}Fleetness aktivieren (+Celerity auf Dodge, Rouse Check){{/if}}">
+        <i class="fas fa-wind"></i>
+        {{#if fleetnessActive}}Fleetness ✓{{else}}Fleetness{{/if}}
+      </button>
+    {{else if hasFleetness}}
+      {{#if fleetnessActive}}
+        <span class="vtm-discipline-badge vtm-celerity-badge vtm-fleetness-active"
+              title="Fleetness aktiv — +Celerity auf Dodge">
+          <i class="fas fa-wind"></i> Fleetness ✓
+        </span>
+      {{else}}
+        <span class="vtm-discipline-badge vtm-celerity-badge"
+              title="Fleetness (Celerity 2): einmalig pro Runde +Celerity-Rang auf Dodge">
+          <i class="fas fa-wind"></i> Fleetness
+        </span>
+      {{/if}}
+    {{/if}}
+
+    {{#if hasBlink}}
+      <span class="vtm-discipline-badge vtm-celerity-badge"
+            title="Blink (Celerity 3): Rouse Check, keine Würfelwirkung">
+        <i class="fas fa-eye-slash"></i> Blink
+      </span>
+    {{/if}}
+
+    {{#if hasCompel}}
+      <span class="vtm-discipline-badge vtm-dominate-badge"
+            title="Compel (Dominate 1): Manipulation+Dominate vs Entschl.+Intelligenz, Ziel verliert Aktion">
+        <i class="fas fa-brain"></i> Compel
+      </span>
+    {{/if}}
+
+    {{#if hasLethalBody}}
+      <span class="vtm-discipline-badge vtm-potence-badge"
+            title="Lethal Body (Potence 1): Unbewaffnete Treffer gelten als aggravated gegen Sterbliche. Passiv.">
+        <i class="fas fa-fist-raised"></i> Lethal Body
+      </span>
+    {{/if}}
+
+    {{#if canToggleProwess}}
+      <button data-action="toggle-prowess"
+              class="vtm-cover-btn {{#if prowessActive}}vtm-potence-active{{/if}}"
+              title="{{#if prowessActive}}Prowess aktiv (+Potence-Rating Würfel+Schaden, Rouse Check bei Auflösung) — klicken zum Deaktivieren{{else}}Prowess aktivieren (+Potence-Rating Würfel und Schaden auf Nahkampf, Rouse Check){{/if}}">
+        <i class="fas fa-fist-raised"></i>
+        {{#if prowessActive}}Prowess ✓{{else}}Prowess{{/if}}
+      </button>
+    {{else if hasProwess}}
+      <span class="vtm-discipline-badge vtm-potence-badge {{#if prowessActive}}vtm-potence-active{{/if}}"
+            title="Prowess (Potence 2): +Potence-Rating auf Nahkampfwürfel und Schaden. Rouse Check.">
+        <i class="fas fa-fist-raised"></i> Prowess{{#if prowessActive}} ✓{{/if}}
+      </span>
+    {{/if}}
+
+    {{#if canToggleSparkOfRage}}
+      <button data-action="toggle-spark-of-rage"
+              class="vtm-cover-btn {{#if sparkOfRageActive}}vtm-potence-active{{/if}}"
+              title="{{#if sparkOfRageActive}}Spark of Rage aktiv (+2 Würfel alle physischen Angriffe) — klicken zum Deaktivieren{{else}}Spark of Rage aktivieren (+2 Würfel auf alle physischen Angriffe, Rouse Check){{/if}}">
+        <i class="fas fa-fire"></i>
+        {{#if sparkOfRageActive}}Spark of Rage ✓{{else}}Spark of Rage{{/if}}
+      </button>
+    {{else if hasSparkOfRage}}
+      <span class="vtm-discipline-badge vtm-potence-badge {{#if sparkOfRageActive}}vtm-potence-active{{/if}}"
+            title="Spark of Rage (Potence 4): +2 Würfel auf alle physischen Angriffe. Rouse Check.">
+        <i class="fas fa-fire"></i> Spark of Rage{{#if sparkOfRageActive}} ✓{{/if}}
+      </span>
+    {{/if}}
+
+    {{#if canToggleFistOfCaine}}
+      <button data-action="toggle-fist-of-caine"
+              class="vtm-cover-btn {{#if fistOfCaineActive}}vtm-potence-active{{/if}}"
+              title="{{#if fistOfCaineActive}}Fist of Caine aktiv (aggravated gegen Vampire, Rouse Check) — klicken zum Deaktivieren{{else}}Fist of Caine aktivieren (unbewaffnet → aggravated gegen Vampire, Rouse Check){{/if}}">
+        <i class="fas fa-skull"></i>
+        {{#if fistOfCaineActive}}Fist of Caine ✓{{else}}Fist of Caine{{/if}}
+      </button>
+    {{else if hasFistOfCaine}}
+      <span class="vtm-discipline-badge vtm-potence-badge {{#if fistOfCaineActive}}vtm-potence-active{{/if}}"
+            title="Fist of Caine (Potence 5): Unbewaffnet → aggravated gegen Vampire. Rouse Check.">
+        <i class="fas fa-skull"></i> Fist of Caine{{#if fistOfCaineActive}} ✓{{/if}}
+      </span>
+    {{/if}}
+
+    {{#if canToggleLightningStrike}}
+      <button data-action="toggle-lightning-strike"
+              class="vtm-cover-btn {{#if lightningStrikeActive}}vtm-fleetness-active{{/if}}"
+              title="{{#if lightningStrikeActive}}Lightning Strike aktiv — Verteidiger gilt als 1 Erfolg{{else}}Lightning Strike aktivieren (Rouse Check, Verteidiger = 1 Erfolg){{/if}}">
+        <i class="fas fa-bolt"></i>
+        {{#if lightningStrikeActive}}Lightning Strike ✓{{else}}Lightning Strike{{/if}}
+      </button>
+    {{else if hasLightningStrike}}
+      <span class="vtm-discipline-badge vtm-celerity-badge {{#if lightningStrikeActive}}vtm-fleetness-active{{/if}}"
+            title="Lightning Strike (Celerity 5)">
+        <i class="fas fa-bolt"></i> Lightning Strike{{#if lightningStrikeActive}} ✓{{/if}}
+      </span>
+    {{/if}}
+  </div>
 
   {{!-- Action buttons --}}
   <div class="vtm-card-actions">

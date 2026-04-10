@@ -172,11 +172,16 @@ const FIELD_MAP = {
   healthSuperficial: a => a.system?.health?.superficial ?? 0,
 
   // ── Willpower ──────────────────────────────────────────────────────────────
-  willpowerMax:   a => a.system?.willpower?.max ?? 6,
-  willpowerValue: a => wod5eRemaining(a.system?.willpower, 6),
+  willpowerMax:         a => a.system?.willpower?.max ?? 6,
+  willpowerValue:       a => wod5eRemaining(a.system?.willpower, 6),
+  willpowerAggravated:  a => a.system?.willpower?.aggravated  ?? 0,
+  willpowerSuperficial: a => a.system?.willpower?.superficial ?? 0,
 
   // ── Hunger (VTM only) ──────────────────────────────────────────────────────
   hunger: a => Number(a.system?.hunger?.value ?? 0),
+
+  // ── Blood Potency (Vampire only, null for non-vampires) ────────────────────
+  bloodPotency: a => a.type === 'vampire' ? Number(a.system?.blood?.potency ?? 0) : null,
 
   // ── Attributes — system.attributes.{id}.value ──────────────────────────────
   strength:     a => wod5eSkill(a, 'strength',     1),
@@ -184,9 +189,10 @@ const FIELD_MAP = {
   wits:         a => wod5eSkill(a, 'wits',         1),
   stamina:      a => wod5eSkill(a, 'stamina',      1),
   charisma:     a => wod5eSkill(a, 'charisma',     1),
-  manipulation: a => wod5eSkill(a, 'manipulation', 1),
-  resolve:      a => wod5eSkill(a, 'resolve',      1),
-  composure:    a => wod5eSkill(a, 'composure',    1),
+  manipulation:  a => wod5eSkill(a, 'manipulation',  1),
+  resolve:       a => wod5eSkill(a, 'resolve',       1),
+  composure:     a => wod5eSkill(a, 'composure',     1),
+  intelligence:  a => wod5eSkill(a, 'intelligence',  1),
 
   // ── Skills — system.skills.{id}.value ──────────────────────────────────────
   brawl:     a => wod5eSkill(a, 'brawl',     0),
@@ -240,15 +246,19 @@ export class ActorAdapter {
 
   getHealth() {
     return {
-      value: this._safe('healthValue', 4),
-      max:   this._safe('healthMax',   4),
+      value:       this._safe('healthValue',       4),
+      max:         this._safe('healthMax',         4),
+      superficial: this._safe('healthSuperficial', 0),
+      aggravated:  this._safe('healthAggravated',  0),
     };
   }
 
   getWillpower() {
     return {
-      value: this._safe('willpowerValue', 3),
-      max:   this._safe('willpowerMax',   6),
+      value:       this._safe('willpowerValue',       3),
+      max:         this._safe('willpowerMax',          6),
+      superficial: this._safe('willpowerSuperficial', 0),
+      aggravated:  this._safe('willpowerAggravated',  0),
     };
   }
 
@@ -256,6 +266,21 @@ export class ActorAdapter {
   getAttribute(name)       { return this._safe(name, 2); }
   getSkill(name)           { return this._safe(name, 0); }
   getDiscipline(name)      { return this._safe(name, 0); }
+
+  /**
+   * Gibt alle konkret gelernten Disziplin-Powers zurück (kanonische Namen aus KNOWN_POWER_NAMES).
+   * Nutzt wod5eKnownPowers für jede Disziplin — identische Logik wie der FIELD_MAP.
+   */
+  getDisciplinePowers() {
+    const DISCIPLINES = ['celerity', 'potence', 'fortitude', 'dominate',
+                         'presence', 'protean', 'auspex', 'obfuscate'];
+    const powers = [];
+    for (const disc of DISCIPLINES) {
+      const known = wod5eKnownPowers(this._actor, disc, KNOWN_POWER_NAMES);
+      powers.push(...known);
+    }
+    return powers;
+  }
 
   getPool(attribute, skill, bonus = 0) {
     return Math.max(1, this.getAttribute(attribute) + this.getSkill(skill) + bonus);
@@ -292,8 +317,9 @@ export class ActorAdapter {
         stamina:      this.getAttribute('stamina'),
         charisma:     this.getAttribute('charisma'),
         manipulation: this.getAttribute('manipulation'),
-        resolve:      this.getAttribute('resolve'),
-        composure:    this.getAttribute('composure'),
+        resolve:       this.getAttribute('resolve'),
+        composure:     this.getAttribute('composure'),
+        intelligence:  this.getAttribute('intelligence'),
       },
       skills: {
         brawl:     this.getSkill('brawl'),
@@ -301,7 +327,9 @@ export class ActorAdapter {
         firearms:  this.getSkill('firearms'),
         athletics: this.getSkill('athletics'),
       },
-      // Disziplinen als { rating, knownPowers[] } — für DisciplineEngine
+      bloodPotency: (() => {
+        try { return FIELD_MAP.bloodPotency(this._actor); } catch { return null; }
+      })(),
       disciplines: {
         celerity:  this.getDiscipline('celerity'),
         potence:   this.getDiscipline('potence'),
@@ -312,6 +340,7 @@ export class ActorAdapter {
         auspex:    this.getDiscipline('auspex'),
         obfuscate: this.getDiscipline('obfuscate'),
       },
+      disciplinePowers: this.getDisciplinePowers(),
     };
   }
 
@@ -334,19 +363,36 @@ export class ActorAdapter {
 
     if (h && ('aggravated' in h || 'superficial' in h)) {
       // ── wod5e schema ──────────────────────────────────────────────────────
-      const field    = type === 'aggravated' ? 'aggravated' : 'superficial';
-      const current  = Number(h[field] ?? 0);
-      const otherDmg = type === 'aggravated'
-        ? Number(h.superficial ?? 0)
-        : Number(h.aggravated  ?? 0);
-      // Cap: can't exceed remaining uninjured boxes
-      const headroom = Math.max(0, max - otherDmg - current);
-      const apply    = Math.min(amount, headroom);
+      const currentSup = Number(h.superficial ?? 0);
+      const currentAgg = Number(h.aggravated  ?? 0);
 
-      if (apply > 0) {
-        await this._actor.update({
-          [`system.health.${field}`]: current + apply,
-        });
+      if (type === 'aggravated') {
+        // Aggravated geht direkt in agg-Kästen
+        const apply = Math.min(amount, Math.max(0, max - currentAgg));
+        if (apply > 0) {
+          await this._actor.update({ 'system.health.aggravated': currentAgg + apply });
+        }
+      } else {
+        // Superficial: erst leere Kästen füllen, dann Überlauf upgradet sup → agg
+        const empty   = Math.max(0, max - currentSup - currentAgg);
+        const fillSup = Math.min(amount, empty);
+        const overflow = amount - fillSup;
+
+        const newSup = currentSup + fillSup;
+        const update = {};
+
+        if (fillSup > 0) update['system.health.superficial'] = newSup;
+
+        if (overflow > 0 && newSup > 0) {
+          // Überschuss upgraded bestehende sup-Kästen zu agg
+          const upgrade = Math.min(overflow, newSup);
+          update['system.health.superficial'] = newSup - upgrade;
+          update['system.health.aggravated']  = Math.min(max, currentAgg + upgrade);
+        }
+
+        if (Object.keys(update).length > 0) {
+          await this._actor.update(update);
+        }
       }
     } else {
       // ── Generic fallback ──────────────────────────────────────────────────
@@ -362,6 +408,23 @@ export class ActorAdapter {
     if (_get(this._actor, 'system.health.value') !== undefined) return 'system.health.value';
     if (_get(this._actor, 'system.health')        !== undefined) return 'system.health';
     return null;
+  }
+
+  // ── Willpower spend ────────────────────────────────────────────────────────
+
+  /**
+   * Marks 1 superficial Willpower damage (= spends 1 Willpower point).
+   * @returns {Promise<boolean>} true if spending was successful
+   */
+  async spendWillpower() {
+    const wp  = this._actor.system?.willpower;
+    if (!wp) return false;
+    const max = Number(wp.max ?? 6);
+    const sup = Number(wp.superficial ?? 0);
+    const agg = Number(wp.aggravated  ?? 0);
+    if (sup + agg >= max) return false;
+    await this._actor.update({ 'system.willpower.superficial': sup + 1 });
+    return true;
   }
 
   // ── Module flags ───────────────────────────────────────────────────────────

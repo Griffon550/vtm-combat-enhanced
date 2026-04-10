@@ -134,8 +134,26 @@ export function opposed(attackPool, attackHunger, defensePool, defenseHunger) {
   };
 }
 
+// ─── Willpower re-roll ────────────────────────────────────────────────────────
+
+/**
+ * Re-roll specific normal dice in an existing DiceResult.
+ * Hunger dice are never touched.
+ *
+ * @param {DiceResult} result   - The original roll
+ * @param {number[]}   indices  - Up to 3 indices into result.normalRolls
+ * @returns {DiceResult}        - New result with the selected dice re-rolled
+ */
+export function rerollNormal(result, indices) {
+  const newNormal = [...result.normalRolls];
+  for (const i of indices.slice(0, 3)) {
+    if (i >= 0 && i < newNormal.length) newNormal[i] = d10();
+  }
+  return evaluate(newNormal, result.hungerRolls);
+}
+
 // ─── Namespace export (matches import style used elsewhere) ───────────────────
 
 /** Convenience namespace so callers can do: DiceEngine.roll() */
-export const DiceEngine = { roll, evaluate, opposed, setRandomFn };
+export const DiceEngine = { roll, evaluate, opposed, rerollNormal, setRandomFn };
 export default DiceEngine;

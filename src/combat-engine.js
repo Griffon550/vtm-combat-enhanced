@@ -15,9 +15,9 @@
  *   Pass a stub in tests to get deterministic results.
  */
 
-import { DiceEngine }        from './dice/dice-engine.js';
-import { DisciplineEngine }  from './disciplines/discipline-engine.js';
-import { DISCIPLINE_POWERS } from './disciplines/discipline-powers.js';
+import { DiceEngine } from './dice/dice-engine.js';
+import { Log }        from './logger.js';
+// Discipline system deactivated — will be added back manually piece by piece
 
 // ─── Enumerations ─────────────────────────────────────────────────────────────
 
@@ -30,22 +30,36 @@ export const CombatPhase = Object.freeze({
 });
 
 export const ActionType = Object.freeze({
-  // ── Melee attack types (determine attribute+skill pool) ────────────────────
-  ATTACK_UNARMED: 'attack_unarmed', // STR + BRAWL
-  ATTACK_LIGHT:   'attack_light',   // DEX + MELEE  (light weapons: knife, sword)
-  ATTACK_HEAVY:   'attack_heavy',   // STR + MELEE  (heavy weapons: great sword, axe)
-  // ── Ranged attack types ────────────────────────────────────────────────────
+  // ── Unbewaffnete Angriffe ──────────────────────────────────────────────────
+  ATTACK_UNARMED:         'attack_unarmed',         // STR + BRAWL (Kraft)
+  ATTACK_UNARMED_FINESSE: 'attack_unarmed_finesse', // DEX + BRAWL (Finesse)
+  // ── Bewaffnete Nahkampf-Angriffe ──────────────────────────────────────────
+  ATTACK_LIGHT:   'attack_light',   // DEX + MELEE  (leichte Waffe: Messer, Schwert)
+  ATTACK_HEAVY:   'attack_heavy',   // STR + MELEE  (schwere Waffe: Axt, Zweihand)
+  // ── Fernkampf-Angriffe ────────────────────────────────────────────────────
   ATTACK_RANGED:  'attack_ranged',  // DEX + FIREARMS
   ATTACK_AIMED:   'attack_aimed',   // WITS + FIREARMS (gezieltes Schießen)
-  // ── Backward-compatible alias (maps to ATTACK_HEAVY pool logic) ────────────
+  // ── Rückwärtskompatibel ───────────────────────────────────────────────────
   ATTACK_MELEE:   'attack_melee',
-  // ── Other ─────────────────────────────────────────────────────────────────
-  DEFEND:         'defend',
-  DODGE:          'dodge',
-  DISCIPLINE:     'discipline',
-  SPECIAL:        'special',
-  PASS:           'pass',
+  // ── Andere ────────────────────────────────────────────────────────────────
+  DEFEND:           'defend',
+  DODGE:            'dodge',
+  DISCIPLINE:       'discipline',
+  SPECIAL:          'special',
+  PASS:             'pass',
+  // ── Dominate ────────────────────────────────────────────────────────────────
+  DOMINATE_COMPEL:  'dominate_compel',  // Charisma + Dominate vs Resolve + Intelligence
 });
+
+// Physische Angriffs-Aktionstypen (für contested/opposed/unhindered Interaktionen)
+const _PHYSICAL_ATTACK_SET = new Set([
+  ActionType.ATTACK_UNARMED, ActionType.ATTACK_UNARMED_FINESSE,
+  ActionType.ATTACK_LIGHT,   ActionType.ATTACK_HEAVY,
+  ActionType.ATTACK_RANGED,  ActionType.ATTACK_AIMED, ActionType.ATTACK_MELEE,
+]);
+
+// Alle Interaktions-Aktionstypen (inkl. soziale Angriffe)
+const _ATTACK_SET = new Set([..._PHYSICAL_ATTACK_SET, ActionType.DOMINATE_COMPEL]);
 
 
 export const DamageType = Object.freeze({
@@ -141,6 +155,25 @@ function _normDisc(d) {
   return { rating: d.rating ?? 0, knownPowers: Array.from(d.knownPowers ?? []) };
 }
 
+/**
+ * Verteilt einen Pool gleichmäßig auf Ziele und gibt den Pool für das Ziel
+ * am gegebenen Index zurück. Der Rest (bei ungeradem Pool oder ungerader Zielzahl)
+ * geht an frühere Ziele (kleinere Indizes).
+ *
+ * Beispiel: Pool 7, 3 Ziele → [3, 2, 2]  (nicht [2, 2, 2] — 1 Würfel verloren)
+ *
+ * @param {number} total       Gesamtpool
+ * @param {number} numTargets  Anzahl Ziele (≥ 1)
+ * @param {number} targetIndex 0-basierter Index dieses Ziels
+ * @returns {number}
+ */
+function _splitPool(total, numTargets, targetIndex) {
+  if (numTargets <= 1) return total;
+  const base      = Math.floor(total / numTargets);
+  const remainder = total % numTargets;
+  return Math.max(1, base + (targetIndex < remainder ? 1 : 0));
+}
+
 export function createParticipant(data, side = 'players') {
   // Normalisiere Disziplinen (kompatibel mit altem Flat-Number-Format)
   const rawDisc = data.disciplines ?? {};
@@ -159,16 +192,30 @@ export function createParticipant(data, side = 'players') {
     name:         data.name ?? 'Unknown',
     img:          data.img  ?? '',
     side,
-    health:       { value: 10, max: 10, ...data.health },
-    willpower:    { value: 3,  max: 6,  ...data.willpower },
+    health: {
+      value:       10,
+      max:         10,
+      superficial: 0,
+      aggravated:  0,
+      ...data.health,
+    },
+    willpower:    { value: 3, max: 6, superficial: 0, aggravated: 0, ...data.willpower },
     hunger:       data.hunger     ?? 0,
     initiative:   data.initiative ?? 0,
     /** 'melee' | 'ranged' — Distanz zum nächsten Gegner */
     distance:     data.distance   ?? 'melee',
     statusEffects: Array.from(data.statusEffects ?? []),
     disciplines,
-    attributes:   { strength: 2, dexterity: 2, wits: 2, stamina: 2, charisma: 2, manipulation: 2, resolve: 2, composure: 2, ...data.attributes },
+    attributes:   { strength: 2, dexterity: 2, wits: 2, stamina: 2, charisma: 2, manipulation: 2, resolve: 2, composure: 2, intelligence: 2, ...data.attributes },
     skills:       { brawl: 0, melee: 0, firearms: 0, athletics: 0, ...data.skills },
+    bloodPotency:     data.bloodPotency !== undefined ? data.bloodPotency : null,
+    inCover:          data.inCover ?? false,
+    disciplinePowers:       Array.from(data.disciplinePowers ?? []),
+    fleetnessActive:        false, // Reset jede Runde
+    lightningStrikeActive:  false, // Reset jede Runde
+    prowessActive:          false, // Reset jede Runde
+    sparkOfRageActive:      false, // Reset jede Runde
+    fistOfCaineActive:      false, // Reset jede Runde
     /** Equipped weapon — pick from WEAPON_TABLE or null for unarmed @type {Object|null} */
     weapon:       data.weapon ?? null,
     /** Equipped armor  — pick from ARMOR_TABLE  or null @type {Object|null} */
@@ -183,16 +230,13 @@ export class CombatSession {
   constructor() {
     this.id    = `session-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     this.phase = CombatPhase.SETUP;
-    this.round = 0;
+    this.round = 1;
 
     /** @type {Map<string, Participant>} */
     this.participants = new Map();
 
     /** @type {CombatResult[]} */
     this.log = [];
-
-    /** Modulare Disziplineffekt-Auflösung */
-    this.disciplineEngine = new DisciplineEngine(DISCIPLINE_POWERS);
 
     /**
      * Optional change listener. Called after every state mutation.
@@ -217,6 +261,42 @@ export class CombatSession {
 
   removeParticipant(id) {
     this.participants.delete(id);
+    this._notify();
+  }
+
+  setInCover(participantId, inCover) {
+    const p = this._require(participantId);
+    p.inCover = inCover;
+    this._notify();
+  }
+
+  setFleetness(participantId, active) {
+    const p = this._require(participantId);
+    p.fleetnessActive = active;
+    this._notify();
+  }
+
+  setLightningStrike(participantId, active) {
+    const p = this._require(participantId);
+    p.lightningStrikeActive = active;
+    this._notify();
+  }
+
+  setProwess(participantId, active) {
+    const p = this._require(participantId);
+    p.prowessActive = active;
+    this._notify();
+  }
+
+  setSparkOfRage(participantId, active) {
+    const p = this._require(participantId);
+    p.sparkOfRageActive = active;
+    this._notify();
+  }
+
+  setFistOfCaine(participantId, active) {
+    const p = this._require(participantId);
+    p.fistOfCaineActive = active;
     this._notify();
   }
 
@@ -264,33 +344,28 @@ export class CombatSession {
     const p    = this._require(id);
     const dex  = p.attributes.dexterity ?? 2;
     const wits = p.attributes.wits      ?? 2;
+    const impaired = p.statusEffects?.includes(StatusEffect.IMPAIRED) ? 2 : 0;
 
-    // beforeInitiative: passive Kräfte (z.B. Rapid Reflexes +1 Würfel, Lightning Strike +5 Erfolge)
-    const initCtx = this.disciplineEngine.applyBeforeInitiative(
-      p,
-      { pool: dex + wits, hungerDice: 0 },
-      p.intent?.activePowers ?? [],
-    );
+    const pool     = Math.max(1, dex + wits - impaired);
+    const hunger   = Math.min(p.hunger ?? 0, pool);
+    const rollFn   = opts.roll ?? DiceEngine.roll;
+    const result   = rollFn(pool, hunger);
 
-    const rollFn = opts.roll ?? DiceEngine.roll;
-    const result = rollFn(initCtx.pool, initCtx.hungerDice);
+    Log.debug(`Initiative ${p.name}: DEX(${dex}) + WIT(${wits})${impaired ? ` -${impaired} IMPAIRED` : ''} = ${pool} Würfel`);
+    Log.roll(`${p.name} Initiative`, pool, hunger, result);
 
-    // Flat Initiative-Bonus (z.B. Lightning Strike: +5 Erfolge)
-    p.initiative     = result.successes + (initCtx.initiativeBonus ?? 0);
+    p.initiative     = result.successes;
     p._initiativeDex = dex;
     this._notify();
     return {
-      participantId:      id,
-      name:               p.name,
+      participantId: id,
+      name:          p.name,
       dex, wits,
-      pool:               initCtx.pool,
-      hungerDice:         initCtx.hungerDice,
-      roll:               result,          // full DiceResult (normalRolls, hungerRolls, …)
-      successes:          result.successes,
-      initiativeBonus:    initCtx.initiativeBonus,
-      surpriseResistance: initCtx.surpriseResistance,
-      appliedPowers:      initCtx.appliedPowers ?? [],
-      total:              p.initiative,
+      pool,
+      hungerDice:    hunger,
+      roll:          result,
+      successes:     result.successes,
+      total:         p.initiative,
     };
   }
 
@@ -341,18 +416,22 @@ export class CombatSession {
       throw new Error('Cannot set intent outside of the Intent phase.');
     }
     const p = this._require(participantId);
+    // Normalisiere targetIds: bevorzuge explizites Array, falle auf targetId zurück
+    const targetIds = intent.targetIds?.length
+      ? Array.from(intent.targetIds)
+      : (intent.targetId ? [intent.targetId] : []);
+
     p.intent = {
-      actorId:       participantId,
-      actionType:    intent.actionType  ?? ActionType.PASS,
-      targetId:      intent.targetId   ?? null,
-      /** Kräfte, die dieser Charakter diesen Zug aktiviert (rouse_check / contest). */
-      activePowers:  Array.from(intent.activePowers ?? []),
-      /** Legacy-Modifikatoren (werden intern ignoriert, dienen der Rückwärtskompatibilität). */
-      modifiers:     intent.modifiers  ?? {},
+      actorId:        participantId,
+      actionType:     intent.actionType    ?? ActionType.PASS,
+      targetIds,
+      targetId:       targetIds[0]         ?? null,   // Rückwärtskompatibilität
+      activePowers:   Array.from(intent.activePowers ?? []),
+      modifiers:      intent.modifiers     ?? {},
       disciplineUsed: intent.disciplineUsed ?? null,
       specialAction:  intent.specialAction  ?? null,
-      /** Waffe: Eintrag aus WEAPON_TABLE oder null (fällt auf participant.weapon zurück). */
-      weapon:         intent.weapon    ?? null,
+      weapon:         intent.weapon         ?? null,
+      bloodSurge:     intent.bloodSurge     ?? false,
     };
     this._notify();
   }
@@ -360,7 +439,6 @@ export class CombatSession {
   // ─── Resolution ────────────────────────────────────────────────────────────
 
   startResolutionPhase() {
-    this.round++;
     this.setPhase(CombatPhase.RESOLUTION);
   }
 
@@ -386,199 +464,586 @@ export class CombatSession {
    */
   resolveAll(diceOverride = null) {
     const results  = [];
-    const order    = this.getInitiativeOrder();
+    const roundCtx = { defenseCount: new Map(), hasAttacked: new Set() };
 
-    /**
-     * Rundenkontext für Multi-Defense-Tracking.
-     * @type {{ defenseCount: Map<string,number>, hasAttacked: Set<string> }}
-     *
-     * defenseCount  — wie oft hat dieser Teilnehmer diese Runde bereits verteidigt
-     * hasAttacked   — hat dieser Teilnehmer diese Runde bereits einen Angriff ausgeführt
-     */
-    const roundCtx = {
-      defenseCount: new Map(),
-      hasAttacked:  new Set(),
-    };
+    const interactions = this._buildInteractions();
+    Log.group(`Runde ${this.round} — Auflösung (${interactions.length} Interaktion${interactions.length !== 1 ? 'en' : ''})`);
+    if (interactions.length) {
+      Log.debug('Interaktionen:', interactions.map(i => `${i.type}: ${i.attacker.name} → ${i.defender?.name ?? '?'}`).join(', '));
+    }
 
-    for (const actor of order) {
-      if (!actor.intent || actor.intent.actionType === ActionType.PASS) continue;
-      if (this._isIncapacitated(actor)) continue;
-
-      const result = this._resolveOne(actor, diceOverride, roundCtx);
-      if (result) {
-        results.push(result);
-        this.log.push(result);
+    // 1. Angriffs-Interaktionen (contested / opposed / unhindered)
+    for (const interaction of interactions) {
+      // Angreifer-Intent könnte durch frühere Disziplin (Compel) auf null gesetzt worden sein
+      if (!interaction.attacker.intent) continue;
+      const r = this._resolveInteraction(interaction, diceOverride, roundCtx);
+      if (r) {
+        if (Array.isArray(r)) { results.push(...r); this.log.push(...r); }
+        else                  { results.push(r);    this.log.push(r);    }
       }
     }
 
+    // 2. Nicht-Angriffs-Aktionen (Disziplin, Sonderaktion) in Initiativereihenfolge
+    for (const actor of this.getInitiativeOrder()) {
+      if (!actor.intent || this._isIncapacitated(actor)) continue;
+      const at = actor.intent.actionType;
+      if (_ATTACK_SET.has(at) || at === ActionType.DEFEND || at === ActionType.DODGE || at === ActionType.PASS) continue;
+      const r = this._resolveOne(actor, diceOverride, roundCtx);
+      if (r) {
+        if (Array.isArray(r)) { results.push(...r); this.log.push(...r); }
+        else                  { results.push(r);    this.log.push(r);    }
+      }
+    }
+
+    Log.debug(`Runde ${this.round} abgeschlossen — ${results.length} Ergebnis${results.length !== 1 ? 'se' : ''}`);
+    Log.groupEnd();
     this.setPhase(CombatPhase.STATE_UPDATE);
     return results;
   }
 
-  /** Resolve a single actor's intent. */
+  /**
+   * Löst eine einzelne Nicht-Angriffs-Aktion auf.
+   * Angriffe laufen jetzt durch das Interaktionssystem (_buildInteractions → _resolveInteraction).
+   */
   _resolveOne(actor, dice, roundCtx) {
     const { actionType } = actor.intent;
-
-    if (actionType === ActionType.DEFEND || actionType === ActionType.DODGE) {
-      // Reactive — resolved inside the attacker's turn.
-      return null;
-    }
-
+    if (_ATTACK_SET.has(actionType))                                   return null;
+    if (actionType === ActionType.DEFEND || actionType === ActionType.DODGE) return null;
     switch (actionType) {
-      case ActionType.ATTACK_UNARMED:
-      case ActionType.ATTACK_LIGHT:
-      case ActionType.ATTACK_HEAVY:
-      case ActionType.ATTACK_RANGED:
-      case ActionType.ATTACK_AIMED:
-      case ActionType.ATTACK_MELEE:   // backward-compat alias
-        return this._resolveAttack(actor, dice, roundCtx);
-      case ActionType.DISCIPLINE:
-        return this._resolveDiscipline(actor);
-      case ActionType.SPECIAL:
-        return this._resolveSpecial(actor);
-      default:
-        return null;
+      case ActionType.DISCIPLINE: return this._resolveDiscipline(actor);
+      case ActionType.SPECIAL:    return this._resolveSpecial(actor);
+      default:                    return null;
     }
+  }
+
+  // ─── Interaktionssystem ───────────────────────────────────────────────────
+
+  /**
+   * Leitet die Reaktionsweise eines Verteidigers gegenüber einem bestimmten Angreifer ab.
+   * @param {Participant} defender
+   * @param {string}      attackerId
+   * @returns {'attacking_back'|'defending'|'none'}
+   */
+  _inferReactionType(defender, attackerId) {
+    const intent = defender.intent;
+    if (!intent) return 'none';
+    if (_PHYSICAL_ATTACK_SET.has(intent.actionType)) {
+      const tids = intent.targetIds?.length ? intent.targetIds
+                 : (intent.targetId ? [intent.targetId] : []);
+      if (tids.includes(attackerId)) return 'attacking_back';
+    }
+    if (intent.actionType === ActionType.DEFEND || intent.actionType === ActionType.DODGE) {
+      return 'defending';
+    }
+    return 'none';
+  }
+
+  /**
+   * Baut alle Kampf-Interaktionspaare aus den deklarierten Intents.
+   * Contested-Paare (A→B und B→A) werden dedupliziert.
+   * @returns {Array<{type:'contested'|'opposed'|'unhindered', attacker:Participant, defender:Participant}>}
+   */
+  _buildInteractions() {
+    const interactions = [];
+    const handled      = new Set(); // deduplizierte Paare: "id1§id2" (sortiert)
+
+    for (const actor of this.getInitiativeOrder()) {
+      if (!actor.intent || !_ATTACK_SET.has(actor.intent.actionType)) continue;
+      if (this._isIncapacitated(actor)) continue;
+
+      const actionType = actor.intent.actionType;
+      const targetIds  = actor.intent.targetIds?.length ? actor.intent.targetIds
+                       : (actor.intent.targetId ? [actor.intent.targetId] : []);
+
+      // ── Soziale Aktionen (Compel etc.): eigene Interaktionstyp, kein Dedup ──
+      if (actionType === ActionType.DOMINATE_COMPEL) {
+        for (const targetId of targetIds) {
+          const defender = this.participants.get(targetId);
+          if (!defender) continue;
+          interactions.push({ type: 'compel', attacker: actor, defender });
+        }
+        continue;
+      }
+
+      // ── Physische Angriffe: contested / opposed / unhindered (mit Dedup) ───
+      for (const targetId of targetIds) {
+        const defender = this.participants.get(targetId);
+        if (!defender || this._isIncapacitated(defender)) continue;
+
+        const pairKey = [actor.id, targetId].sort().join('§');
+        if (handled.has(pairKey)) continue;
+        handled.add(pairKey);
+
+        const reaction = this._inferReactionType(defender, actor.id);
+        interactions.push({
+          type:     reaction === 'attacking_back' ? 'contested'
+                  : reaction === 'defending'       ? 'opposed'
+                  :                                  'unhindered',
+          attacker: actor,
+          defender,
+        });
+      }
+    }
+    return interactions;
+  }
+
+  /** Dispatcht eine Interaktion zum passenden Auflösungstyp. */
+  _resolveInteraction(interaction, dice, roundCtx) {
+    const { type, attacker, defender } = interaction;
+    switch (type) {
+      case 'contested':  return this._resolveContested(attacker, defender, dice, roundCtx);
+      case 'opposed':    return this._resolveOpposed(attacker, defender, dice, roundCtx);
+      case 'unhindered': return this._resolveUnhindered(attacker, defender, dice, roundCtx);
+      case 'compel':     return this._resolveCompel(attacker, defender, dice, roundCtx);
+      default: return null;
+    }
+  }
+
+  /**
+   * Dominate 1 — Compel: Manipulation+Dominate vs Resolve+Intelligence.
+   * Bei Erfolg verliert das Ziel seine Aktion (intent = null) und befolgt den Befehl.
+   */
+  _resolveCompel(attacker, defender, dice, roundCtx) {
+    const rollFn   = dice?.roll ?? DiceEngine.roll;
+    const intent   = attacker.intent;
+
+    Log.group(`Compel: ${attacker.name} → ${defender.name}`);
+
+    // ── Angriffspool: Charisma + Dominate-Rang ──────────────────────────────────
+    const bd        = this._getAttackPool(attacker, ActionType.DOMINATE_COMPEL, []);
+    const atkPool   = bd.total;
+    const atkHunger = Math.min(attacker.hunger ?? 0, atkPool);
+    Log.pool('Compel-Angriff', bd);
+    const attackRoll = rollFn(atkPool, atkHunger);
+    Log.roll(`${attacker.name} Compel`, atkPool, atkHunger, attackRoll);
+    const atkSuccesses = attackRoll.successes;
+
+    // ── Verteidigungspool: Resolve + Intelligence (kein Hunger) ───────────────
+    const resolve      = defender.attributes.resolve      ?? 1;
+    const intelligence = defender.attributes.intelligence ?? 2;
+    const impairedDef  = defender.statusEffects.includes(StatusEffect.IMPAIRED) ? 2 : 0;
+    const defPool      = Math.max(1, resolve + intelligence - impairedDef);
+    const defBdLog = { attrName: 'Entschlossenheit', attrVal: resolve, skillName: 'Intelligenz', skillVal: intelligence, impaired: impairedDef, total: defPool, hungerDice: 0 };
+    Log.pool('Widerstand', defBdLog);
+    const defenseRoll  = rollFn(defPool, 0);
+    Log.roll(`${defender.name} Widerstand`, defPool, 0, defenseRoll);
+    const defSuccesses = defenseRoll.successes;
+
+    const netSuccesses = Math.max(0, atkSuccesses - defSuccesses);
+    Log.outcome(attacker.name, defender.name, atkSuccesses, defSuccesses, netSuccesses, 0, 0, null);
+    const effects      = [];
+
+    if (netSuccesses > 0) {
+      // Ziel steht unter Compel-Einfluss und verliert seine Aktion
+      defender.intent = null;
+      effects.push(`${defender.name} steht unter dem Einfluss von Compel und verliert seine Aktion.`);
+    }
+
+    roundCtx?.hasAttacked.add(attacker.id);
+
+    const defBd = {
+      attrName: 'Entschlossenheit', attrVal: resolve,
+      skillName: 'Intelligenz',     skillVal: intelligence,
+      total: defPool, hungerDice: 0, impaired: impairedDef,
+    };
+
+    Log.groupEnd();
+    return {
+      attackerId:   attacker.id,  attackerName: attacker.name,
+      defenderId:   defender.id,  defenderName: defender.name,
+      actionType:   ActionType.DOMINATE_COMPEL, interactionType: 'compel',
+      attackRoll, defenseRoll,
+      netSuccesses, rawDamage: 0, damage: 0, damageType: null,
+      effects,
+      breakdown: { attack: bd, defense: defBd },
+      narrative: netSuccesses > 0
+        ? `${attacker.name} zwingt ${defender.name} mit Compel: ${atkSuccesses}:${defSuccesses} → ${netSuccesses} Nettoerfolge.`
+        : `${attacker.name} scheitert mit Compel gegen ${defender.name}: ${atkSuccesses}:${defSuccesses}.`,
+    };
+  }
+
+  /**
+   * Typ A: Beide greifen sich gegenseitig an → contested roll.
+   * Nur der Charakter mit mehr Erfolgen trifft; Schaden = Nettoerfolge + Boni.
+   */
+  _resolveContested(initiator, counterpart, dice, roundCtx) {
+    const rollFn = dice?.roll ?? DiceEngine.roll;
+    Log.group(`Contested: ${initiator.name} ↔ ${counterpart.name}`);
+
+    const bdI    = this._getAttackPool(initiator,   initiator.intent.actionType,   initiator.intent.activePowers   ?? []);
+    const bdC    = this._getAttackPool(counterpart,  counterpart.intent.actionType, counterpart.intent.activePowers ?? []);
+    Log.pool(`${initiator.name} Angriff`,   bdI);
+    Log.pool(`${counterpart.name} Angriff`, bdC);
+
+    const numI   = initiator.intent.targetIds?.length   || 1;
+    const numC   = counterpart.intent.targetIds?.length || 1;
+    const idxI   = initiator.intent.targetIds?.indexOf(counterpart.id) ?? 0;
+    const idxC   = counterpart.intent.targetIds?.indexOf(initiator.id)  ?? 0;
+    const modI   = initiator.intent.poolModifier   ?? 0;
+    const modC   = counterpart.intent.poolModifier ?? 0;
+    const splI   = Math.max(1, _splitPool(bdI.total + modI, numI, idxI));
+    const splC   = Math.max(1, _splitPool(bdC.total + modC, numC, idxC));
+    const hunI   = Math.min(initiator.hunger   ?? 0, splI);
+    const hunC   = Math.min(counterpart.hunger ?? 0, splC);
+
+    const rollI  = rollFn(splI, hunI);
+    const rollC  = rollFn(splC, hunC);
+    Log.roll(`${initiator.name}`,   splI, hunI, rollI);
+    Log.roll(`${counterpart.name}`, splC, hunC, rollC);
+    let succI  = rollI.successes + (bdI.autoSuccesses ?? 0);
+    let succC  = rollC.successes + (bdC.autoSuccesses ?? 0);
+
+    // Lightning Strike (Celerity 5): Gegenangreifer gilt als hätte nur 1 Erfolg
+    const lsI = initiator.lightningStrikeActive   && (initiator.disciplinePowers   ?? []).includes('Lightning Strike');
+    const lsC = counterpart.lightningStrikeActive && (counterpart.disciplinePowers ?? []).includes('Lightning Strike');
+    if (lsI) { Log.debug(`Lightning Strike: ${counterpart.name} wird auf 1 Erfolg begrenzt`); succC = Math.min(succC, 1); }
+    if (lsC) { Log.debug(`Lightning Strike: ${initiator.name} wird auf 1 Erfolg begrenzt`);   succI = Math.min(succI, 1); }
+
+    roundCtx?.hasAttacked.add(initiator.id);
+    roundCtx?.hasAttacked.add(counterpart.id);
+
+    const splitBdI = { ...bdI, total: splI, hungerDice: hunI, splitCount: numI > 1 ? numI : 0 };
+    const splitBdC = { ...bdC, total: splC, hungerDice: hunC, splitCount: numC > 1 ? numC : 0 };
+
+    // Gleichstand → niemand trifft
+    if (succI === succC) {
+      Log.debug(`Gleichstand ${succI}:${succC} — niemand trifft.`);
+      Log.groupEnd();
+      return {
+        attackerId: initiator.id, attackerName: initiator.name,
+        defenderId: counterpart.id, defenderName: counterpart.name,
+        actionType: initiator.intent.actionType, interactionType: 'contested',
+        attackRoll: rollI, defenseRoll: rollC,
+        netSuccesses: 0, rawDamage: 0, damage: 0, damageType: null,
+        effects: [],
+        breakdown: { attack: splitBdI, defense: splitBdC },
+        contestedNames: { winner: null, loser: null, initiator: initiator.name, counterpart: counterpart.name },
+        narrative: `${initiator.name} vs ${counterpart.name}: Gleichstand (${succI}:${succC}) — niemand trifft.`,
+      };
+    }
+
+    const winner     = succI > succC ? initiator   : counterpart;
+    const loser      = succI > succC ? counterpart  : initiator;
+    const winnerRoll = succI > succC ? rollI        : rollC;
+    const loserRoll  = succI > succC ? rollC        : rollI;
+    const winnerBd   = succI > succC ? splitBdI     : splitBdC;
+    const loserBd    = succI > succC ? splitBdC     : splitBdI;
+    const winnerSucc = Math.max(succI, succC);
+    const loserSucc  = Math.min(succI, succC);
+    const netSuccesses = winnerSucc - loserSucc;
+
+    const weapon          = winner.intent.weapon ?? winner.weapon ?? WEAPON_TABLE.UNARMED;
+    const weaponDmgBonus  = Number(weapon.damageBonus ?? 0);
+    const potenceDmgBonus = this._getPotenceDamageBonus(winner, winner.intent.actionType);
+    const baseDamage      = netSuccesses + weaponDmgBonus + potenceDmgBonus;
+    Log.debug(`Waffe: ${weapon.name}, Bonus: ${weaponDmgBonus}${potenceDmgBonus ? ` +${potenceDmgBonus} Prowess` : ''}, Rohschaden: ${baseDamage}`);
+
+    const weaponForcesAgg = weapon.damageType === DamageType.AGGRAVATED;
+    const damageType = weaponForcesAgg ? DamageType.AGGRAVATED
+                     : this._getPotenceDamageType(winner, winner.intent.actionType, loser, DamageType.SUPERFICIAL);
+
+    const actualDamage = this._applyDamageReduction(baseDamage, damageType, loser);
+    const effects = [];
+    if (actualDamage > 0) this._applyDamage(loser, actualDamage, damageType, effects);
+
+    Log.outcome(winner.name, loser.name, winnerSucc, loserSucc, netSuccesses, baseDamage, actualDamage, damageType);
+    if (effects.length) Log.debug(`Effekte: ${effects.join(', ')}`);
+    Log.groupEnd();
+    return {
+      attackerId:   winner.id,   attackerName: winner.name,
+      defenderId:   loser.id,    defenderName: loser.name,
+      actionType:   winner.intent.actionType, interactionType: 'contested',
+      weapon:       weapon.name, attackRoll: winnerRoll, defenseRoll: loserRoll,
+      netSuccesses, rawDamage: baseDamage, damage: actualDamage, damageType,
+      prowessDamageBonus: potenceDmgBonus,
+      effects,
+      breakdown: { attack: winnerBd, defense: loserBd },
+      contestedNames: { winner: winner.name, loser: loser.name,
+                        initiator: initiator.name, counterpart: counterpart.name },
+      narrative: `${winner.name} gewinnt den Austausch gegen ${loser.name}: ${winnerSucc}:${loserSucc} → ${netSuccesses} netto → ${actualDamage} Schaden.`,
+    };
+  }
+
+  /**
+   * Typ B: Angriff gegen aktive Verteidigung → opposed roll (bisheriges Verhalten).
+   */
+  _resolveOpposed(attacker, defender, dice, roundCtx) {
+    const rollFn       = dice?.roll ?? DiceEngine.roll;
+    const intent       = attacker.intent;
+    const activePowers = intent.activePowers ?? [];
+
+    Log.group(`Opposed: ${attacker.name} → ${defender?.name ?? '?'}`);
+    roundCtx?.hasAttacked.add(attacker.id);
+
+    const numTargets   = intent.targetIds?.length || 1;
+    const targetIndex  = intent.targetIds?.indexOf(defender.id) ?? 0;
+    const atkBd        = this._getAttackPool(attacker, intent.actionType, activePowers);
+    const poolMod      = intent.poolModifier ?? 0;
+    const splitTotal   = Math.max(1, _splitPool(atkBd.total + poolMod, numTargets, targetIndex));
+    const splitHunger  = Math.min(attacker.hunger ?? 0, splitTotal);
+    const splitBd      = { ...atkBd, total: splitTotal, hungerDice: splitHunger, splitCount: numTargets > 1 ? numTargets : 0 };
+    Log.pool(`${attacker.name} Angriff`, splitBd);
+
+    const weapon = intent.weapon ?? attacker.weapon ?? WEAPON_TABLE.UNARMED;
+
+    const attackRoll        = rollFn(splitTotal, splitHunger);
+    Log.roll(`${attacker.name} Angriff`, splitTotal, splitHunger, attackRoll);
+    const totalAtkSuccesses = attackRoll.successes + (atkBd.autoSuccesses ?? 0);
+
+    let defenseRoll = null, defenseSuccesses = 0, defBd = null, defenseBlocked = false;
+    if (defender && !this._isIncapacitated(defender)) {
+      defenseBlocked = defender.statusEffects.includes(StatusEffect.RESTRAINED)
+                    || defender.statusEffects.includes(StatusEffect.SURPRISED);
+      if (defenseBlocked) {
+        Log.debug(`${defender.name} kann sich nicht verteidigen (RESTRAINED/SURPRISED)`);
+      }
+      if (!defenseBlocked) {
+        const prevDef            = roundCtx?.defenseCount.get(defender.id) ?? 0;
+        const hasAttackedPenalty = (roundCtx?.hasAttacked.has(defender.id) && prevDef === 0) ? 1 : 0;
+        const multiDefPenalty    = Math.max(0, prevDef + hasAttackedPenalty);
+        const ti                 = defender.intent ?? { actionType: ActionType.DEFEND };
+        defBd         = this._getDefensePool(defender, ti, multiDefPenalty, { prevDefenses: prevDef, hasAttackedPenalty }, intent.actionType);
+        Log.pool(`${defender.name} Verteidigung`, defBd);
+        // Lightning Strike (Celerity 5): Verteidiger gilt als hätte nur 1 Erfolg erzielt
+        if (attacker.lightningStrikeActive
+            && (attacker.disciplinePowers ?? []).includes('Lightning Strike')) {
+          defenseSuccesses = 1;
+          defenseRoll = { successes: 1, _lightningStrike: true };
+          Log.debug(`Lightning Strike: ${defender.name} wird auf 1 Verteidigungserfolg begrenzt`);
+        } else {
+          defenseRoll      = rollFn(defBd.total, defBd.hungerDice);
+          Log.roll(`${defender.name} Verteidigung`, defBd.total, defBd.hungerDice, defenseRoll);
+          defenseSuccesses = defenseRoll.successes;
+        }
+        roundCtx?.defenseCount.set(defender.id, prevDef + 1);
+      }
+    }
+
+    const netSuccesses    = Math.max(0, totalAtkSuccesses - defenseSuccesses);
+    const weaponDmgBonus  = Number(weapon.damageBonus ?? 0);
+    const potenceDmgBonus = this._getPotenceDamageBonus(attacker, intent.actionType);
+    const baseDamage      = netSuccesses > 0 ? netSuccesses + weaponDmgBonus + potenceDmgBonus : 0;
+
+    const weaponForcesAgg = weapon.damageType === DamageType.AGGRAVATED;
+    const damageType = weaponForcesAgg ? DamageType.AGGRAVATED
+                     : this._getPotenceDamageType(attacker, intent.actionType, defender, DamageType.SUPERFICIAL);
+
+    const actualDamage = this._applyDamageReduction(baseDamage, damageType, defender);
+    const effects = [];
+    if (defender && netSuccesses > 0) {
+      if (actualDamage > 0) this._applyDamage(defender, actualDamage, damageType, effects);
+    }
+
+    Log.outcome(attacker.name, defender?.name ?? '?', totalAtkSuccesses, defenseSuccesses, netSuccesses, baseDamage, actualDamage, damageType);
+    if (effects.length) Log.debug(`Effekte: ${effects.join(', ')}`);
+    Log.groupEnd();
+    return {
+      attackerId: attacker.id, attackerName: attacker.name,
+      defenderId: defender?.id ?? null, defenderName: defender?.name ?? null,
+      actionType: intent.actionType, interactionType: 'opposed',
+      weapon: weapon.name, attackRoll, defenseRoll,
+      netSuccesses, rawDamage: baseDamage, damage: actualDamage, damageType,
+      prowessDamageBonus: potenceDmgBonus,
+      effects,
+      defenseBlocked, splitCount: numTargets > 1 ? numTargets : 0,
+      breakdown: { attack: splitBd, defense: defBd },
+      narrative: this._narrative(attacker, defender, attackRoll, defenseRoll,
+                   netSuccesses, actualDamage, damageType, effects, splitBd,
+                   weapon, numTargets),
+    };
+  }
+
+  /**
+   * Typ C: Ziel reagiert nicht auf diesen Angreifer → ungehinderter Angriff.
+   * Option 2: min. 1 Erfolg nötig; alle Erfolgswürfel landen (kein Verteidigungswurf).
+   */
+  _resolveUnhindered(attacker, defender, dice, roundCtx) {
+    const rollFn       = dice?.roll ?? DiceEngine.roll;
+    const intent       = attacker.intent;
+    const activePowers = intent.activePowers ?? [];
+
+    Log.group(`Unhindered: ${attacker.name} → ${defender?.name ?? '?'}`);
+    roundCtx?.hasAttacked.add(attacker.id);
+
+    const numTargets  = intent.targetIds?.length || 1;
+    const targetIndex = intent.targetIds?.indexOf(defender?.id) ?? 0;
+    const atkBd       = this._getAttackPool(attacker, intent.actionType, activePowers);
+    const poolMod     = intent.poolModifier ?? 0;
+    const splitTotal  = Math.max(1, _splitPool(atkBd.total + poolMod, numTargets, targetIndex));
+    const splitHunger = Math.min(attacker.hunger ?? 0, splitTotal);
+    const splitBd     = { ...atkBd, total: splitTotal, hungerDice: splitHunger, splitCount: numTargets > 1 ? numTargets : 0 };
+    Log.pool(`${attacker.name} Angriff`, splitBd);
+
+    const weapon = intent.weapon ?? attacker.weapon ?? WEAPON_TABLE.UNARMED;
+
+    const attackRoll = rollFn(splitTotal, splitHunger);
+    Log.roll(`${attacker.name} Angriff`, splitTotal, splitHunger, attackRoll);
+    const successes  = attackRoll.successes + (atkBd.autoSuccesses ?? 0);
+
+    // Option 2: mindestens 1 Erfolg nötig
+    if (successes < 1) {
+      Log.debug(`Fehlschlag: 0 Erfolge — kein Schaden.`);
+      Log.groupEnd();
+      return {
+        attackerId: attacker.id, attackerName: attacker.name,
+        defenderId: defender?.id ?? null, defenderName: defender?.name ?? null,
+        actionType: intent.actionType, interactionType: 'unhindered',
+        weapon: weapon.name, attackRoll, defenseRoll: null,
+        netSuccesses: 0, rawDamage: 0, damage: 0, damageType: DamageType.SUPERFICIAL,
+        effects: [], breakdown: { attack: splitBd, defense: null },
+        defenseBlocked: false,
+        narrative: `${attacker.name} → ${defender?.name ?? '?'}: Fehlschlag (0 Erfolge).`,
+      };
+    }
+
+    const weaponDmgBonus  = Number(weapon.damageBonus ?? 0);
+    const potenceDmgBonus = this._getPotenceDamageBonus(attacker, intent.actionType);
+    const baseDamage      = successes + weaponDmgBonus + potenceDmgBonus;
+
+    const weaponForcesAgg = weapon.damageType === DamageType.AGGRAVATED;
+    const damageType = weaponForcesAgg ? DamageType.AGGRAVATED
+                     : this._getPotenceDamageType(attacker, intent.actionType, defender, DamageType.SUPERFICIAL);
+
+    const actualDamage = this._applyDamageReduction(baseDamage, damageType, defender);
+    const effects = [];
+    if (defender && actualDamage > 0) this._applyDamage(defender, actualDamage, damageType, effects);
+
+    Log.outcome(attacker.name, defender?.name ?? '?', successes, 0, successes, baseDamage, actualDamage, damageType);
+    if (effects.length) Log.debug(`Effekte: ${effects.join(', ')}`);
+    Log.groupEnd();
+    return {
+      attackerId: attacker.id,  attackerName: attacker.name,
+      defenderId: defender?.id  ?? null, defenderName: defender?.name ?? null,
+      actionType: intent.actionType, interactionType: 'unhindered',
+      weapon: weapon.name, attackRoll, defenseRoll: null,
+      netSuccesses: successes, rawDamage: baseDamage, damage: actualDamage, damageType,
+      prowessDamageBonus: potenceDmgBonus,
+      effects,
+      defenseBlocked: false, splitCount: numTargets > 1 ? numTargets : 0,
+      breakdown: { attack: splitBd, defense: null },
+      narrative: this._narrative(attacker, defender, attackRoll, null,
+                   successes, actualDamage, damageType, effects, splitBd,
+                   weapon, numTargets),
+    };
   }
 
   // ─── Attack resolution ────────────────────────────────────────────────────
 
   _resolveAttack(attacker, dice, roundCtx = null) {
-    const intent        = attacker.intent;
-    const activePowers  = intent.activePowers ?? [];
-    const target        = intent.targetId ? this.participants.get(intent.targetId) : null;
+    const intent       = attacker.intent;
+    const activePowers = intent.activePowers ?? [];
 
     // Angreifer als "hat angegriffen" markieren (zählt für dessen eigene Verteidigung später)
     roundCtx?.hasAttacked.add(attacker.id);
 
-    // ── Zielbarkeit prüfen (Mist Form, Vanish, …) ────────────────────────────
-    if (target && this.disciplineEngine.cannotBeTargeted(target, target.intent?.activePowers ?? [])) {
-      return {
-        attackerId: attacker.id, attackerName: attacker.name,
-        defenderId: target.id,   defenderName: target.name,
-        actionType: intent.actionType,
-        weapon: null, attackRoll: null, defenseRoll: null,
-        netSuccesses: 0, rawDamage: 0, damage: 0, damageType: null,
-        effects: [], breakdown: null, defenseBlocked: false,
-        narrative: `${attacker.name} → ${target.name}: Ziel nicht angreifbar (Nebelform o.ä.).`,
-      };
-    }
+    // ── Ziele bestimmen ───────────────────────────────────────────────────────
+    const targetIds = intent.targetIds?.length
+      ? intent.targetIds
+      : (intent.targetId ? [intent.targetId] : [null]);
+    const numTargets = targetIds.length;
 
     // ── Effektive Waffe: intent → ausgerüstete Waffe → Unbewaffnet ────────────
     const weapon = intent.weapon ?? attacker.weapon ?? WEAPON_TABLE.UNARMED;
 
-    // ── Angriffspool ─────────────────────────────────────────────────────────
+    // ── Angriffspool (einmal für alle Ziele berechnen, dann aufteilen) ────────
     const atkBreakdown = this._getAttackPool(attacker, intent.actionType, activePowers);
     const rollFn       = dice?.roll ?? DiceEngine.roll;
-    const attackRoll   = rollFn(atkBreakdown.total, atkBreakdown.hungerDice);
 
-    // Automatische Erfolge aus Disziplineffekten
-    const totalAtkSuccesses = attackRoll.successes + (atkBreakdown.autoSuccesses ?? 0);
+    // ── Loop über alle Ziele ──────────────────────────────────────────────────
+    const results = [];
 
-    // ── Verteidigungspool — Multi-Defense-System ──────────────────────────────
-    //
-    // Jeder kann reaktiv verteidigen, AUSSER er ist:
-    //   • RESTRAINED  (physisch fixiert)
-    //   • SURPRISED   (überrascht, kein Abwehrwurf)
-    //
-    // Malus: defense_pool = base - prevDefenses - attackedPenalty + celerityReduction
-    //   prevDefenses    = Anzahl bereits absolvierter Verteidigungen diese Runde
-    //   attackedPenalty = +1 auf die ERSTE Verteidigung wenn Ziel bereits selbst angegriffen hat
-    //   celerityReduction = durch Swiftness/Celerity reduzierter Malus
+    for (let tIdx = 0; tIdx < targetIds.length; tIdx++) {
+      const targetId    = targetIds[tIdx];
+      const target      = targetId ? this.participants.get(targetId) : null;
 
-    let defenseRoll      = null;
-    let defenseSuccesses = 0;
-    let defBreakdown     = null;
-    let defenseBlocked   = false;
+      // Pool für dieses Ziel (Rest geht an frühere Ziele)
+      const splitTotal  = _splitPool(atkBreakdown.total, numTargets, tIdx);
+      const splitHunger = Math.min(attacker.hunger ?? 0, splitTotal);
 
-    if (target && !this._isIncapacitated(target)) {
-      defenseBlocked = target.statusEffects.includes(StatusEffect.RESTRAINED)
-                    || target.statusEffects.includes(StatusEffect.SURPRISED);
+      // Aufgeteiltes Pool-Breakdown für dieses Ziel
+      const splitBreakdown = {
+        ...atkBreakdown,
+        total:      splitTotal,
+        hungerDice: splitHunger,
+        splitCount: numTargets > 1 ? numTargets : 0,
+      };
 
-      if (!defenseBlocked) {
-        const prevDefenses       = roundCtx?.defenseCount.get(target.id) ?? 0;
-        const hasAttackedPenalty = (roundCtx?.hasAttacked.has(target.id) && prevDefenses === 0) ? 1 : 0;
-        const rawPenalty         = prevDefenses + hasAttackedPenalty;
-        const celerityReduction  = this.disciplineEngine.getMultiDefensePenaltyReduction(
-          target, target.intent?.activePowers ?? []
-        );
-        const multiDefPenalty = Math.max(0, rawPenalty - celerityReduction);
+      // Angriffsroll mit aufgeteiltem Pool
+      const attackRoll        = rollFn(splitTotal, splitHunger);
+      const totalAtkSuccesses = attackRoll.successes + (atkBreakdown.autoSuccesses ?? 0);
 
-        const ti     = target.intent ?? { actionType: ActionType.DEFEND };
-        defBreakdown = this._getDefensePool(target, ti, multiDefPenalty, {
-          prevDefenses, hasAttackedPenalty, celerityReduction,
-        });
-        defenseRoll      = rollFn(defBreakdown.total, defBreakdown.hungerDice);
-        defenseSuccesses = defenseRoll.successes;
+      // ── Verteidigungspool — Multi-Defense-System ────────────────────────────
+      //   defense_pool = base - prevDefenses - attackedPenalty + celerityReduction
+      //   RESTRAINED / SURPRISED → kein Abwehrwurf
 
-        // Verteidigungszähler erhöhen — nächster Angriff gegen dieses Ziel kostet 1 Würfel mehr
-        roundCtx?.defenseCount.set(target.id, prevDefenses + 1);
+      let defenseRoll      = null;
+      let defenseSuccesses = 0;
+      let defBreakdown     = null;
+      let defenseBlocked   = false;
+
+      if (target && !this._isIncapacitated(target)) {
+        defenseBlocked = target.statusEffects.includes(StatusEffect.RESTRAINED)
+                      || target.statusEffects.includes(StatusEffect.SURPRISED);
+
+        if (!defenseBlocked) {
+          const prevDefenses       = roundCtx?.defenseCount.get(target.id) ?? 0;
+          const hasAttackedPenalty = (roundCtx?.hasAttacked.has(target.id) && prevDefenses === 0) ? 1 : 0;
+          const multiDefPenalty    = Math.max(0, prevDefenses + hasAttackedPenalty);
+
+          const ti     = target.intent ?? { actionType: ActionType.DEFEND };
+          defBreakdown = this._getDefensePool(target, ti, multiDefPenalty, {
+            prevDefenses, hasAttackedPenalty,
+          }, intent.actionType);
+          defenseRoll      = rollFn(defBreakdown.total, defBreakdown.hungerDice);
+          defenseSuccesses = defenseRoll.successes;
+
+          // Verteidigungszähler erhöhen — nächster Angriff kostet 1 Würfel mehr
+          roundCtx?.defenseCount.set(target.id, prevDefenses + 1);
+        }
       }
+
+      // ── Netto-Erfolge & Rohschaden ──────────────────────────────────────────
+      const netSuccesses   = Math.max(0, totalAtkSuccesses - defenseSuccesses);
+      const weaponDmgBonus = Number(weapon.damageBonus ?? 0);
+      const baseDamage     = netSuccesses > 0 ? netSuccesses + weaponDmgBonus : 0;
+
+      // Schadenstyp: Waffe → Standard superficial
+      const weaponForcesAgg = weapon.damageType === DamageType.AGGRAVATED;
+      const damageType = weaponForcesAgg ? DamageType.AGGRAVATED : DamageType.SUPERFICIAL;
+
+      // ── Schadensreduktion (Rüstung, Vampir-Halbierung) ────────────────────
+      const actualDamage = this._applyDamageReduction(baseDamage, damageType, target);
+
+      // ── Schaden anwenden ──────────────────────────────────────────────────
+      const effects = [];
+      if (target && netSuccesses > 0) {
+        if (actualDamage > 0) this._applyDamage(target, actualDamage, damageType, effects);
+      }
+
+      results.push({
+        attackerId:   attacker.id,
+        attackerName: attacker.name,
+        defenderId:   target?.id   ?? null,
+        defenderName: target?.name ?? null,
+        actionType:   intent.actionType,
+        weapon:       weapon.name,
+        attackRoll,
+        defenseRoll,
+        netSuccesses,
+        rawDamage:    baseDamage,
+        damage:       actualDamage,
+        damageType,
+        effects,
+        defenseBlocked,
+        splitCount:   numTargets > 1 ? numTargets : 0,
+        breakdown:    { attack: splitBreakdown, defense: defBreakdown },
+        narrative:    this._narrative(attacker, target, attackRoll, defenseRoll,
+                        netSuccesses, actualDamage, damageType, effects, splitBreakdown,
+                        weapon, numTargets),
+      });
     }
 
-    // ── Netto-Erfolge & Rohschaden ────────────────────────────────────────────
-    const netSuccesses   = Math.max(0, totalAtkSuccesses - defenseSuccesses);
-    const weaponDmgBonus = Number(weapon.damageBonus ?? 0);
-    const baseDamage     = netSuccesses > 0 ? netSuccesses + weaponDmgBonus : 0;
-
-    // Schadenstyp: Waffe → Messy Critical → Standard superficial
-    const weaponForcesAgg = weapon.damageType === DamageType.AGGRAVATED;
-    let damageType = (weaponForcesAgg || attackRoll.messyCritical)
-      ? DamageType.AGGRAVATED
-      : DamageType.SUPERFICIAL;
-
-    // ── onHit-Hook: Disziplinkräfte (Prowess, Lethal Body, Spark of Rage, …) ──
-    let finalDamage     = baseDamage;
-    let statusesToApply = [];
-    let onHitPowers     = [];
-
-    if (netSuccesses > 0) {
-      const hitCtx = this.disciplineEngine.applyOnHit(
-        attacker, intent.actionType,
-        { damage: baseDamage, damageType, statusesToApply: [] },
-        activePowers,
-      );
-      finalDamage     = hitCtx.damage;
-      damageType      = hitCtx.damageType;
-      statusesToApply = hitCtx.statusesToApply;
-      onHitPowers     = hitCtx.appliedPowers ?? [];
-    }
-
-    // ── Schadensreduktion (Rüstung, Fortitude, Vampir-Halbierung) ────────────
-    const actualDamage = this._applyDamageReduction(finalDamage, damageType, target);
-
-    // ── Schaden und Zustände anwenden ─────────────────────────────────────────
-    const effects = [];
-    if (target && netSuccesses > 0) {
-      if (actualDamage > 0) {
-        this._applyDamage(target, actualDamage, effects);
-      }
-      for (const status of statusesToApply) {
-        this._addStatus(target, status, effects);
-      }
-    }
-
-    return {
-      attackerId:   attacker.id,
-      attackerName: attacker.name,
-      defenderId:   target?.id   ?? null,
-      defenderName: target?.name ?? null,
-      actionType:   intent.actionType,
-      weapon:       weapon.name,
-      attackRoll,
-      defenseRoll,
-      netSuccesses,
-      rawDamage:    baseDamage,
-      damage:       actualDamage,
-      damageType,
-      effects,
-      appliedPowers: [...onHitPowers, ...(atkBreakdown.appliedPowers ?? [])],
-      defenseBlocked,
-      breakdown:    { attack: atkBreakdown, defense: defBreakdown },
-      narrative:    this._narrative(attacker, target, attackRoll, defenseRoll,
-                      netSuccesses, actualDamage, damageType, effects, atkBreakdown,
-                      weapon, onHitPowers),
-    };
+    return results;
   }
 
   // ─── Attack pool helper ───────────────────────────────────────────────────
@@ -588,9 +1053,7 @@ export class CombatSession {
   //
   // @param {Participant} attacker
   // @param {string}      actionType  one of ActionType.*
-  // @param {Object}      modifiers   { celerity, potence }
-  // @returns {{ total, hungerDice, attrName, attrVal, skillName, skillVal,
-  //             potenceBonus, celerityBonus, impaired }}
+  // @returns {{ total, hungerDice, attrName, attrVal, skillName, skillVal, impaired }}
 
   _getAttackPool(attacker, actionType, activePowers) {
     let attrVal, attrName, skillVal, skillName;
@@ -598,6 +1061,10 @@ export class CombatSession {
     switch (actionType) {
       case ActionType.ATTACK_UNARMED:
         attrVal = attacker.attributes.strength;   attrName  = 'Stärke';
+        skillVal = attacker.skills.brawl ?? 0;    skillName = 'Raufen';
+        break;
+      case ActionType.ATTACK_UNARMED_FINESSE:
+        attrVal = attacker.attributes.dexterity;  attrName  = 'Geschicklichkeit';
         skillVal = attacker.skills.brawl ?? 0;    skillName = 'Raufen';
         break;
       case ActionType.ATTACK_LIGHT:
@@ -616,6 +1083,10 @@ export class CombatSession {
         attrVal = attacker.attributes.wits ?? 2;  attrName  = 'Verstand';
         skillVal = attacker.skills.firearms ?? 0; skillName = 'Schusswaffen';
         break;
+      case ActionType.DOMINATE_COMPEL:
+        attrVal  = attacker.attributes.charisma              ?? 1; attrName  = 'Charisma';
+        skillVal = attacker.disciplines?.dominate?.rating    ?? 0; skillName = 'Dominate';
+        break;
       case ActionType.ATTACK_MELEE:
       default: {
         const brawl = attacker.skills.brawl ?? 0;
@@ -627,26 +1098,73 @@ export class CombatSession {
       }
     }
 
-    // Statusmalus (frightened, intimidated, etc.)
-    const statusPenalty = this.disciplineEngine.getStatusPoolPenalty(attacker);
-    const impaired      = attacker.statusEffects.includes(StatusEffect.IMPAIRED) ? 2 : 0;
-    const baseTotal     = Math.max(1, attrVal + skillVal - impaired - statusPenalty);
+    // ── Prowess (Potence 2): +Potence-Rating auf Nahkampfangriffe ────────────
+    const _PROWESS_ACTIONS = new Set([
+      ActionType.ATTACK_UNARMED, ActionType.ATTACK_UNARMED_FINESSE,
+      ActionType.ATTACK_LIGHT,   ActionType.ATTACK_HEAVY, ActionType.ATTACK_MELEE,
+    ]);
+    let prowessBonus = 0;
+    if (attacker.prowessActive
+        && (attacker.disciplinePowers ?? []).includes('Prowess')
+        && _PROWESS_ACTIONS.has(actionType)) {
+      prowessBonus = attacker.disciplines?.potence?.rating ?? 0;
+    }
 
-    // beforeRoll-Hook: Disziplinkräfte (Unerring Aim, Fist of Caine, …)
-    const rollCtx = this.disciplineEngine.applyBeforeRoll(
-      attacker, actionType,
-      { total: baseTotal, hungerDice: Math.min(attacker.hunger ?? 0, baseTotal) },
-      activePowers,
-    );
+    // ── Spark of Rage (Potence 4): +2 auf alle physischen Angriffe ───────────
+    let sparkBonus = 0;
+    if (attacker.sparkOfRageActive
+        && (attacker.disciplinePowers ?? []).includes('Spark of Rage')
+        && _PHYSICAL_ATTACK_SET.has(actionType)) {
+      sparkBonus = 2;
+    }
+
+    const impaired = attacker.statusEffects.includes(StatusEffect.IMPAIRED) ? 2 : 0;
+    const total    = Math.max(1, attrVal + skillVal + prowessBonus + sparkBonus - impaired);
 
     return {
-      total:        rollCtx.total,
-      hungerDice:   rollCtx.hungerDice,
-      autoSuccesses: rollCtx.autoSuccesses ?? 0,
-      appliedPowers: rollCtx.appliedPowers ?? [],
+      total,
+      hungerDice:    Math.min(attacker.hunger ?? 0, total),
+      autoSuccesses: 0,
       attrName, attrVal, skillName, skillVal,
-      impaired, statusPenalty,
+      impaired,
+      prowessBonus, sparkBonus,
     };
+  }
+
+  // ─── Potence damage helpers ───────────────────────────────────────────────
+
+  /**
+   * Schadenstyp-Override durch Potence.
+   * Lethal Body (Potence 1): Unbewaffnet → aggravated gegen Sterbliche.
+   * Fist of Caine (Potence 5): Unbewaffnet → aggravated gegen Vampire.
+   */
+  _getPotenceDamageType(attacker, actionType, target, baseDamageType) {
+    const UNARMED = new Set([ActionType.ATTACK_UNARMED, ActionType.ATTACK_UNARMED_FINESSE]);
+    if (!UNARMED.has(actionType)) return baseDamageType;
+    const powers = attacker.disciplinePowers ?? [];
+    const targetIsVampire = target?.bloodPotency !== null && target?.bloodPotency !== undefined;
+
+    if (powers.includes('Lethal Body') && !targetIsVampire) return DamageType.AGGRAVATED;
+    if (attacker.fistOfCaineActive && powers.includes('Fist of Caine') && targetIsVampire) {
+      return DamageType.AGGRAVATED;
+    }
+    return baseDamageType;
+  }
+
+  /**
+   * Schadensbonus durch Prowess (Potence 2): +Potence-Rating auf Nahkampfschaden.
+   */
+  _getPotenceDamageBonus(attacker, actionType) {
+    const PROWESS_ACTIONS = new Set([
+      ActionType.ATTACK_UNARMED, ActionType.ATTACK_UNARMED_FINESSE,
+      ActionType.ATTACK_LIGHT,   ActionType.ATTACK_HEAVY, ActionType.ATTACK_MELEE,
+    ]);
+    if (attacker.prowessActive
+        && (attacker.disciplinePowers ?? []).includes('Prowess')
+        && PROWESS_ACTIONS.has(actionType)) {
+      return attacker.disciplines?.potence?.rating ?? 0;
+    }
+    return 0;
   }
 
   // ─── Defense pool helper ──────────────────────────────────────────────────
@@ -664,10 +1182,11 @@ export class CombatSession {
    *
    * @param {Participant} target
    * @param {Intent}      intent
-   * @param {number}      multiDefPenalty  Kumulativer Malus (bereits durch Celerity reduziert)
-   * @param {object}      [debugInfo]      { prevDefenses, hasAttackedPenalty, celerityReduction }
+   * @param {number}      multiDefPenalty   Kumulativer Malus (bereits durch Celerity reduziert)
+   * @param {object}      [debugInfo]       { prevDefenses, hasAttackedPenalty, celerityReduction }
+   * @param {string|null} [attackActionType] Angriffstyp des Angreifers (für Fernkampf-Malus)
    */
-  _getDefensePool(target, intent, multiDefPenalty = 0, debugInfo = {}) {
+  _getDefensePool(target, intent, multiDefPenalty = 0, debugInfo = {}, attackActionType = null) {
     // Fortitude wirkt NICHT auf den Verteidigungspool — nur auf Schadensreduktion
     const isDodge = intent.actionType === ActionType.DODGE;
 
@@ -685,20 +1204,35 @@ export class CombatSession {
       else                { skillVal = brawl; skillName = 'Raufen';   }
     }
 
-    const statusPenalty = this.disciplineEngine.getStatusPoolPenalty(target);
-    const impaired      = target.statusEffects.includes(StatusEffect.IMPAIRED) ? 2 : 0;
-    const rawTotal      = Math.max(1, attrVal + skillVal - impaired - statusPenalty);
-    const total         = Math.max(1, rawTotal - multiDefPenalty);
-    const hungerDice    = Math.min(target.hunger ?? 0, total);
+    // ── Fernkampf-Malus: -2 ohne Deckung, außer Rapid Reflexes (konkret gelernt) ──
+    const RANGED_ATTACKS = new Set([ActionType.ATTACK_RANGED, ActionType.ATTACK_AIMED]);
+    let rangedPenalty = 0;
+    let rapidReflexesActive = false;
+    if (attackActionType && RANGED_ATTACKS.has(attackActionType)) {
+      const hasCover         = target.inCover ?? false;
+      const hasRapidReflexes = (target.disciplinePowers ?? []).includes('Rapid Reflexes');
+      rapidReflexesActive    = hasRapidReflexes;
+      if (!hasCover && !hasRapidReflexes) rangedPenalty = 2;
+    }
+
+    // ── Fleetness (Celerity 2, konkret gelernt): +Celerity-Rang auf Dodge ──────
+    let fleetnessDice = 0;
+    if (isDodge && (target.fleetnessActive ?? false)
+        && (target.disciplinePowers ?? []).includes('Fleetness')) {
+      fleetnessDice = target.disciplines?.celerity?.rating ?? 0;
+    }
+
+    const impaired   = target.statusEffects.includes(StatusEffect.IMPAIRED) ? 2 : 0;
+    const rawTotal   = Math.max(1, attrVal + skillVal + fleetnessDice - impaired - rangedPenalty);
+    const total      = Math.max(1, rawTotal - multiDefPenalty);
+    const hungerDice = Math.min(target.hunger ?? 0, total);
 
     return {
       total, hungerDice, attrName, attrVal, skillName, skillVal,
-      impaired, statusPenalty,
-      multiDefPenalty,
-      rawTotal,
-      prevDefenses:      debugInfo.prevDefenses      ?? 0,
+      impaired, rangedPenalty, rapidReflexesActive,
+      fleetnessDice, multiDefPenalty, rawTotal,
+      prevDefenses:       debugInfo.prevDefenses       ?? 0,
       hasAttackedPenalty: debugInfo.hasAttackedPenalty ?? 0,
-      celerityReduction: debugInfo.celerityReduction  ?? 0,
     };
   }
 
@@ -773,40 +1307,83 @@ export class CombatSession {
   _applyDamageReduction(rawDamage, type, target) {
     if (!target || rawDamage <= 0) return rawDamage;
 
-    // 1. beforeDamageApply-Hook: Fortitude (Toughness, Flesh of Marble, Defy Bane)
-    const defActivePowers = target.intent?.activePowers ?? [];
-    const discCtx = this.disciplineEngine.applyBeforeDamageApply(
-      target,
-      { damage: rawDamage, damageType: type },
-      defActivePowers,
-    );
-    let damage   = discCtx.damage;
-    type         = discCtx.damageType;  // Defy Bane kann aggravated → superficial ändern
+    let damage = rawDamage;
 
-    // 2. Rüstung (nach Fortitude, vor Vampir-Halbierung)
+    // 1. Rüstung
     const armorReduction = target.armor?.reduction ?? 0;
     if (armorReduction > 0) {
       damage = Math.max(0, damage - armorReduction);
+      Log.debug(`Schadensreduktion ${target.name}: -${armorReduction} Rüstung → ${damage}`);
     }
 
-    // 3. Vampire halbieren oberflächlichen Schaden (Ceiling)
-    if (type === DamageType.SUPERFICIAL) {
+    // 2. Nur Vampire halbieren oberflächlichen Schaden (V5: Menschen nicht)
+    const isVampire = target.bloodPotency !== null && target.bloodPotency !== undefined;
+    if (isVampire && type === DamageType.SUPERFICIAL) {
+      const before = damage;
       damage = Math.ceil(damage / 2);
+      Log.debug(`Schadensreduktion ${target.name}: Vampir-Halbierung ${before} → ${damage} superficial`);
     }
 
     return damage;
   }
 
-  _applyDamage(target, amount, effects) {
-    target.health.value = Math.max(0, target.health.value - amount);
+  /**
+   * Trägt Schaden in den Health Track ein.
+   *
+   * V5-Regeln:
+   *   - Superficial füllt leere Kästen. Wenn alle Kästen voll (sup+agg=max),
+   *     upgrades jeder weitere superficial-Punkt einen bestehenden sup-Kasten zu agg.
+   *   - Aggravated geht direkt in agg-Kästen.
+   *   - Alle Kästen gefüllt (sup+agg >= max)  → IMPAIRED (−2)
+   *   - Alle Kästen aggraviiert (agg >= max)  → TORPOR (Vampir) / DISABLED (Mensch)
+   */
+  _applyDamage(target, amount, type, effects) {
+    if (amount <= 0) return;
+    const max = target.health.max;
+    let sup   = target.health.superficial ?? 0;
+    let agg   = target.health.aggravated  ?? 0;
+
+    if (type === DamageType.AGGRAVATED) {
+      agg = Math.min(max, agg + amount);
+    } else {
+      // Phase 1: leere Kästen mit superficial füllen
+      const empty     = Math.max(0, max - sup - agg);
+      const fillEmpty = Math.min(amount, empty);
+      sup            += fillEmpty;
+      const overflow  = amount - fillEmpty;
+
+      // Phase 2: Überschuss upgraded bestehende sup-Kästen zu agg
+      if (overflow > 0 && sup > 0) {
+        const upgrade = Math.min(overflow, sup);
+        sup -= upgrade;
+        agg  = Math.min(max, agg + upgrade);
+      }
+    }
+
+    // Sicherheitsbegrenzung
+    agg = Math.min(max, agg);
+    sup = Math.min(max - agg, sup);
+
+    target.health.superficial = sup;
+    target.health.aggravated  = agg;
+    target.health.value       = Math.max(0, max - sup - agg);
+
     this._checkStatus(target, effects);
   }
 
   _checkStatus(target, effects) {
-    const { value, max } = target.health;
-    if (value <= 0) {
-      this._addStatus(target, StatusEffect.TORPOR, effects);
-    } else if (value <= Math.ceil(max * 0.3)) {
+    const max         = target.health.max;
+    const agg         = target.health.aggravated  ?? 0;
+    const sup         = target.health.superficial ?? 0;
+    const totalFilled = agg + sup;
+    const isVampire   = target.bloodPotency !== null && target.bloodPotency !== undefined;
+
+    if (agg >= max) {
+      // Alle Kästen aggraviiert → Torpor (Vampir) oder Tot (Mensch)
+      const status = isVampire ? StatusEffect.TORPOR : StatusEffect.DISABLED;
+      this._addStatus(target, status, effects);
+    } else if (totalFilled >= max) {
+      // Alle Kästen gefüllt (mix aus sup/agg) → Impaired
       this._addStatus(target, StatusEffect.IMPAIRED, effects);
     }
   }
@@ -829,10 +1406,17 @@ export class CombatSession {
    * Clear transient (1-round) effects and intents. Transition back to INTENT.
    */
   endRound() {
+    this.round++;
+    this.log.push({ _roundSeparator: true, round: this.round });
     const transient = new Set([StatusEffect.DOMINATED]);
     for (const p of this.participants.values()) {
-      p.statusEffects = p.statusEffects.filter(s => !transient.has(s));
-      p.intent = null;
+      p.statusEffects    = p.statusEffects.filter(s => !transient.has(s));
+      p.intent           = null;
+      p.fleetnessActive       = false;
+      p.lightningStrikeActive = false;
+      // prowessActive bleibt bestehen (ganzer Kampf)
+      p.sparkOfRageActive     = false;
+      p.fistOfCaineActive     = false;
     }
     this.setPhase(CombatPhase.INTENT);
   }
@@ -840,19 +1424,17 @@ export class CombatSession {
   // ─── Narrative builder ────────────────────────────────────────────────────
 
   _narrative(attacker, target, atkRoll, defRoll, net, damage, dmgType, effects,
-             breakdown, weapon, onHitPowers = []) {
+             breakdown, weapon, numTargets = 1) {
     let poolLine = '';
     if (breakdown) {
       const parts = [
         `${breakdown.attrName}(${breakdown.attrVal})`,
         `${breakdown.skillName}(${breakdown.skillVal})`,
       ];
-      if (breakdown.impaired > 0)      parts.push(`Beeinträchtigt(-${breakdown.impaired})`);
-      if (breakdown.statusPenalty > 0) parts.push(`StatusMalus(-${breakdown.statusPenalty})`);
-      if (breakdown.appliedPowers?.length) {
-        parts.push(...breakdown.appliedPowers.map(p => `[${p}]`));
-      }
-      poolLine = `[Pool: ${parts.join(' + ')} = ${breakdown.total} W, ${breakdown.hungerDice}× Hunger] `;
+      if (breakdown.impaired > 0) parts.push(`Beeinträchtigt(-${breakdown.impaired})`);
+      let poolStr = `${breakdown.total} W`;
+      if (numTargets > 1) poolStr += ` (÷${numTargets} Ziele)`;
+      poolLine = `[Pool: ${parts.join(' + ')} = ${poolStr}, ${breakdown.hungerDice}× Hunger] `;
     }
 
     let s = `${attacker.name} → ${target?.name ?? '?'}: `;
@@ -865,9 +1447,7 @@ export class CombatSession {
 
     if (net > 0) {
       const dmgLabel = dmgType === 'aggravated' ? 'aggraviierter' : 'oberflächlicher';
-      s += `${damage} ${dmgLabel} Schaden`;
-      if (onHitPowers.length) s += ` (${onHitPowers.join(', ')})`;
-      s += '. ';
+      s += `${damage} ${dmgLabel} Schaden. `;
     } else {
       s += `Angriff geblockt. `;
     }

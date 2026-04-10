@@ -12,43 +12,58 @@
     <div class="vtm-form-group">
       <label for="vtm-actionType">Aktion</label>
       <select id="vtm-actionType" name="actionType">
-        <optgroup label="Nahkampf">
-          <option value="attack_unarmed" {{#eq intent.actionType "attack_unarmed"}}selected{{/eq}}>Unbewaffnet · STR+Raufen</option>
-          <option value="attack_light"   {{#eq intent.actionType "attack_light"  }}selected{{/eq}}>Leichte Waffe · GES+Nahkampf</option>
-          <option value="attack_heavy"   {{#eq intent.actionType "attack_heavy"  }}selected{{/eq}}>Schwere Waffe · STR+Nahkampf</option>
+        <optgroup label="Nahkampf – Unbewaffnet">
+          <option value="attack_unarmed"         {{#if (eq intent.actionType "attack_unarmed"        )}}selected{{/if}}>Unbewaffnet – Kraft · STR+Raufen</option>
+          <option value="attack_unarmed_finesse"  {{#if (eq intent.actionType "attack_unarmed_finesse")}}selected{{/if}}>Unbewaffnet – Finesse · GES+Raufen</option>
+        </optgroup>
+        <optgroup label="Nahkampf – Waffe">
+          <option value="attack_light"   {{#if (eq intent.actionType "attack_light"  )}}selected{{/if}}>Leichte Waffe · GES+Nahkampf</option>
+          <option value="attack_heavy"   {{#if (eq intent.actionType "attack_heavy"  )}}selected{{/if}}>Schwere Waffe · STR+Nahkampf</option>
         </optgroup>
         <optgroup label="Fernkampf">
-          <option value="attack_ranged"  {{#eq intent.actionType "attack_ranged" }}selected{{/eq}}>Fernkampf · GES+Schusswaffen</option>
-          <option value="attack_aimed"   {{#eq intent.actionType "attack_aimed"  }}selected{{/eq}}>Gezielt · WITS+Schusswaffen</option>
+          <option value="attack_ranged"  {{#if (eq intent.actionType "attack_ranged" )}}selected{{/if}}>Fernkampf · GES+Schusswaffen</option>
+          <option value="attack_aimed"   {{#if (eq intent.actionType "attack_aimed"  )}}selected{{/if}}>Gezielt · WITS+Schusswaffen</option>
         </optgroup>
         <optgroup label="Verteidigung">
-          <option value="defend" {{#eq intent.actionType "defend"}}selected{{/eq}}>Parieren · GES+Nahkampf/Raufen</option>
-          <option value="dodge"  {{#eq intent.actionType "dodge" }}selected{{/eq}}>Ausweichen · GES+Sport</option>
+          <option value="defend" {{#if (eq intent.actionType "defend")}}selected{{/if}}>Parieren · GES+Nahkampf/Raufen</option>
+          <option value="dodge"  {{#if (eq intent.actionType "dodge" )}}selected{{/if}}>Ausweichen · GES+Sport</option>
         </optgroup>
-        {{#if hasDisciplines}}
-        <optgroup label="Disziplin">
-          <option value="discipline" {{#eq intent.actionType "discipline"}}selected{{/eq}}>Disziplin einsetzen</option>
+        {{#if participant.hasCompel}}
+        <optgroup label="Dominate">
+          <option value="dominate_compel" {{#if (eq intent.actionType "dominate_compel")}}selected{{/if}}>Compel · CHA+Dominate vs. ENT+INT</option>
         </optgroup>
         {{/if}}
         <optgroup label="Sonstiges">
-          <option value="special" {{#eq intent.actionType "special"}}selected{{/eq}}>Sonderaktion</option>
-          <option value="pass"    {{#eq intent.actionType "pass"   }}selected{{/eq}}>Passen / Warten</option>
+          <option value="special" {{#if (eq intent.actionType "special")}}selected{{/if}}>Sonderaktion</option>
+          <option value="pass"    {{#if (eq intent.actionType "pass"   )}}selected{{/if}}>Passen / Warten</option>
         </optgroup>
       </select>
     </div>
 
-    {{!-- ── Ziel ── --}}
+    {{!-- ── Ziele (Mehrfachauswahl) ── --}}
     {{#unless isDefensive}}
     <div class="vtm-form-group">
-      <label for="vtm-targetId">Ziel</label>
-      <select id="vtm-targetId" name="targetId">
-        <option value="">— Kein Ziel —</option>
+      <label>Ziel(e)</label>
+      <div class="vtm-target-list">
         {{#each targets}}
-          <option value="{{id}}" {{#eq this.id ../intent.targetId}}selected{{/eq}}>
-            {{name}} ({{side}})
-          </option>
+        <label class="vtm-target-row">
+          <input type="checkbox" name="targetId" value="{{id}}" {{#if checked}}checked{{/if}} />
+          <span class="vtm-target-name">{{name}}</span>
+          <span class="vtm-target-side vtm-side-{{side}}">{{side}}</span>
+        </label>
         {{/each}}
-      </select>
+      </div>
+      {{!-- Pool-Vorschau --}}
+      {{#if isAttack}}
+      <div class="vtm-pool-preview">
+        {{#if showSplit}}
+          Pool <strong>{{poolTotal}}</strong> ÷ {{numTargets}} Ziele
+          = <strong>{{#if splitHasRest}}{{poolPerTarget}}–{{poolPerTargetMax}}{{else}}{{poolPerTarget}}{{/if}}</strong>/Ziel
+        {{else}}
+          Pool <strong>{{poolTotal}}</strong> Würfel
+        {{/if}}
+      </div>
+      {{/if}}
     </div>
     {{/unless}}
 
@@ -70,7 +85,7 @@
         <label>Schadenstyp</label>
         <select name="weaponDamageType">
           <option value="">Standard (oberflächlich)</option>
-          <option value="aggravated" {{#eq intent.weapon.damageType "aggravated"}}selected{{/eq}}>
+          <option value="aggravated" {{#if (eq intent.weapon.damageType "aggravated")}}selected{{/if}}>
             Aggraviiert (Feuer, Silber…)
           </option>
         </select>
@@ -78,20 +93,41 @@
     </fieldset>
     {{/if}}
 
-    {{!-- ── Discipline-Picker (nur für DISCIPLINE-Aktion) ── --}}
-    {{#if isDiscipline}}
-    <div class="vtm-form-group">
-      <label for="vtm-disciplineUsed">Disziplin</label>
-      <select id="vtm-disciplineUsed" name="disciplineUsed">
-        <option value="">— Wählen —</option>
-        {{#each activatablePowers}}
-          <option value="{{name}}" {{#eq name ../intent.disciplineUsed}}selected{{/eq}}>
-            {{name}} ({{discipline}}, Stufe {{level}})
-          </option>
-        {{/each}}
-      </select>
+    {{!-- ── Pool-Vorschau (nur Verteidigung) ── --}}
+    {{#if isDefensive}}
+    <div class="vtm-pool-preview vtm-defense-pool-preview">
+      Pool <strong>{{poolTotal}}</strong> Würfel
     </div>
     {{/if}}
+
+    {{!-- ── Blood Surge ── --}}
+    {{#if showBloodSurge}}
+    <div class="vtm-form-group vtm-blood-surge-group">
+      <label class="vtm-blood-surge-label">
+        <input type="checkbox" name="bloodSurge" {{#if bloodSurge}}checked{{/if}} />
+        <span class="vtm-blood-surge-icon">🩸</span>
+        <span>Blutschub</span>
+        <span class="vtm-blood-surge-info">+{{surgeDice}} Würfel (Blutpotenz {{bloodPotency}}) · Rouse Check</span>
+      </label>
+    </div>
+    {{/if}}
+
+    {{!-- ── Freier Pool-Modifikator ── --}}
+    <div class="vtm-form-group vtm-pool-modifier-group">
+      <label for="vtm-poolModifier">Pool-Modifikator</label>
+      <div class="vtm-pool-modifier-row">
+        <input type="number" id="vtm-poolModifier" name="poolModifier"
+               value="{{poolModifier}}" min="-20" max="20" class="vtm-number-input" />
+        <span class="vtm-pool-modifier-hint">
+          {{#if poolModifier}}
+            {{#if (gt poolModifier 0)}}+{{poolModifier}} Würfel{{/if}}
+            {{#if (lt poolModifier 0)}}{{poolModifier}} Würfel{{/if}}
+          {{else}}
+            kein Bonus/Malus
+          {{/if}}
+        </span>
+      </div>
+    </div>
 
     {{!-- ── Sonderaktion ── --}}
     {{#if isSpecial}}
@@ -102,36 +138,6 @@
     </div>
     {{/if}}
 
-    {{!-- ── Aktivierbare Disziplinkräfte ── --}}
-    {{#if activatablePowers.length}}
-    <fieldset class="vtm-modifiers vtm-powers-section">
-      <legend>Disziplinkräfte aktivieren <span class="vtm-hint">(Rouse Check / Contest)</span></legend>
-      {{#each activatablePowers}}
-      <div class="vtm-modifier-row vtm-power-row">
-        <label title="{{notes}}">
-          <input type="checkbox" name="activePower" value="{{name}}"
-                 {{#if checked}}checked{{/if}} />
-          <span class="vtm-power-name">{{name}}</span>
-          <span class="vtm-power-meta">{{discipline}} Stufe {{level}} · {{activation}}</span>
-        </label>
-      </div>
-      {{/each}}
-    </fieldset>
-    {{/if}}
-
-    {{!-- ── Passive Kräfte (Info) ── --}}
-    {{#if passivePowers.length}}
-    <fieldset class="vtm-modifiers vtm-passive-section">
-      <legend>Immer aktiv <span class="vtm-hint">(passiv)</span></legend>
-      {{#each passivePowers}}
-      <div class="vtm-passive-row" title="{{notes}}">
-        <i class="fas fa-circle vtm-passive-dot"></i>
-        <span class="vtm-power-name">{{name}}</span>
-        <span class="vtm-power-meta">{{discipline}} Stufe {{level}}</span>
-      </div>
-      {{/each}}
-    </fieldset>
-    {{/if}}
 
   </form>
 

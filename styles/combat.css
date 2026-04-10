@@ -31,14 +31,53 @@
   --vtm-font-sz: 14px;
 }
 
-/* ── Application window ─────────────────────────────────────────────────────── */
+/* ── Application window (all VTM modals) ────────────────────────────────────── */
 .vtm-combat-modal .window-content,
-.vtm-dice-popup .window-content {
-  background: var(--vtm-bg);
-  color:      var(--vtm-text);
+.vtm-dice-popup .window-content,
+.vtm-action-dialog .window-content,
+.vtm-roll-confirm .window-content {
+  background: var(--vtm-bg) !important;
+  color:      var(--vtm-text) !important;
   padding:    0;
   font-family: var(--vtm-font);
   font-size:  var(--vtm-font-sz);
+}
+
+/* ── Inputs & Textareas: appearance:none verhindert hellen Browser-Default ── */
+.vtm-combat-modal input:not([type="checkbox"]):not([type="radio"]),
+.vtm-combat-modal textarea,
+.vtm-action-dialog input:not([type="checkbox"]):not([type="radio"]),
+.vtm-action-dialog textarea,
+.vtm-roll-confirm input:not([type="checkbox"]):not([type="radio"]),
+.vtm-roll-confirm textarea {
+  -webkit-appearance: none;
+  appearance:         none;
+  background:         var(--vtm-bg-card) !important;
+  color:              var(--vtm-text-strong) !important;
+  border:             1px solid var(--vtm-border);
+  border-radius:      var(--vtm-radius);
+}
+
+/* Selects: NUR color-scheme:dark — kein appearance:none, damit Text sichtbar bleibt.
+   color-scheme:dark zwingt den Browser, Hintergrund + Text im Darkmode zu rendern. */
+.vtm-action-dialog select,
+.vtm-combat-modal  select,
+.vtm-roll-confirm  select {
+  color-scheme:    dark;
+  background:      var(--vtm-bg-card) !important;
+  color:           var(--vtm-text-strong) !important;
+  border:          1px solid var(--vtm-border) !important;
+  border-radius:   var(--vtm-radius);
+}
+
+/* Checkboxen: native Darstellung mit Akzentfarbe */
+.vtm-action-dialog input[type="checkbox"],
+.vtm-roll-confirm  input[type="checkbox"] {
+  accent-color: var(--vtm-red);
+  width:        15px;
+  height:       15px;
+  cursor:       pointer;
+  flex-shrink:  0;
 }
 
 /* ── Wrapper ───────────────────────────────────────────────────────────────── */
@@ -93,21 +132,26 @@
   display:  flex;
   flex:     1;
   overflow: hidden;
+  gap:      8px;
+  padding:  8px;
 }
 
 .vtm-column {
-  flex:           1;
+  flex:           0 0 220px;
   display:        flex;
   flex-direction: column;
   overflow-y:     auto;
-  padding:        12px;
-  border-right:   1px solid var(--vtm-border);
+  padding:        10px;
+  border:         1px solid var(--vtm-border);
+  border-radius:  var(--vtm-radius);
 }
-.vtm-column:last-child { border-right: none; }
 
 .vtm-center-column {
-  flex:       0 0 230px;
+  flex:       1 1 360px;
+  min-width:  320px;
   background: var(--vtm-bg-light);
+  border:     1px solid var(--vtm-border);
+  border-radius: var(--vtm-radius);
 }
 
 .vtm-players-zone { border-left: 4px solid var(--vtm-players-accent); }
@@ -166,8 +210,8 @@
   background:    var(--vtm-bg-card);
   border:        1px solid var(--vtm-border);
   border-radius: var(--vtm-radius);
-  padding:       10px;
-  margin-bottom: 10px;
+  padding:       6px 8px;
+  margin-bottom: 6px;
   transition:    border-color 0.2s, box-shadow 0.2s;
 }
 
@@ -184,16 +228,16 @@
 .vtm-card-header {
   display:       flex;
   align-items:   center;
-  gap:           10px;
-  margin-bottom: 8px;
+  gap:           7px;
+  margin-bottom: 5px;
 }
 
 .vtm-avatar {
-  width:         36px;
-  height:        36px;
+  width:         26px;
+  height:        26px;
   border-radius: 50%;
   object-fit:    cover;
-  border:        2px solid var(--vtm-border);
+  border:        1px solid var(--vtm-border);
   flex-shrink:   0;
 }
 
@@ -204,18 +248,22 @@
 
 .vtm-card-name {
   display:       block;
-  font-size:     15px;
+  font-size:     12px;
   font-weight:   700;
   color:         var(--vtm-text-strong);
   white-space:   nowrap;
   overflow:      hidden;
   text-overflow: ellipsis;
   line-height:   1.2;
+  cursor:        pointer;
 }
+.vtm-card-name:hover { color: var(--vtm-gold); text-decoration: underline; }
+.vtm-avatar          { cursor: pointer; }
+.vtm-avatar:hover    { border-color: var(--vtm-gold); }
 
 .vtm-initiative-badge {
-  font-size: 12px;
-  color:     var(--vtm-gold);
+  font-size:   11px;
+  color:       var(--vtm-gold);
   font-weight: 600;
 }
 
@@ -239,51 +287,129 @@
 .vtm-icon-btn.vtm-danger:hover   { color: #ff8080; border-color: #ff8080; }
 
 /* ── Track bars ─────────────────────────────────────────────────────────────── */
-.vtm-tracks { margin-bottom: 8px; }
+.vtm-tracks { margin-bottom: 5px; }
 
 .vtm-track-row {
   display:       flex;
   align-items:   center;
-  gap:           8px;
-  margin-bottom: 4px;
+  gap:           6px;
+  margin-bottom: 3px;
 }
 
 .vtm-track-label {
-  font-size:      11px;
+  font-size:      10px;
   font-weight:    600;
   color:          var(--vtm-text-muted);
-  width:          20px;
+  width:          16px;
   flex-shrink:    0;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
 .vtm-track-bar {
-  display: flex;
-  gap:     3px;
-  flex:    1;
+  display:   flex;
+  gap:       2px;
+  flex:      1;
   flex-wrap: wrap;
 }
 
 .vtm-pip {
+  position:      relative;
   width:         12px;
   height:        12px;
-  border-radius: 3px;
-  border:        1px solid #505050;
-  background:    #303030;
+  border-radius: 2px;
+  border:        1px solid #555;
+  background:    #2a2a2a;
   flex-shrink:   0;
-  transition:    background 0.1s;
+  overflow:      hidden;
 }
-.vtm-pip.filled                  { background: #cc3333; border-color: #aa2222; }
-.vtm-pip.vtm-pip-wp.filled       { background: #3377cc; border-color: #2255aa; }
+
+/* ── Health pips ── */
+.vtm-pip.vtm-pip-hp.vtm-pip-superficial {
+  background: #2a2a2a;
+  border-color: #a03030;
+}
+.vtm-pip.vtm-pip-hp.vtm-pip-superficial::after {
+  content:    '';
+  position:   absolute;
+  inset:      0;
+  background: linear-gradient(
+    to bottom right,
+    transparent 42%, #c03030 42%, #c03030 58%, transparent 58%
+  );
+}
+.vtm-pip.vtm-pip-hp.vtm-pip-aggravated {
+  background:   #1a0a0a;
+  border-color: #cc2020;
+}
+.vtm-pip.vtm-pip-hp.vtm-pip-aggravated::before,
+.vtm-pip.vtm-pip-hp.vtm-pip-aggravated::after {
+  content:    '';
+  position:   absolute;
+  inset:      0;
+}
+.vtm-pip.vtm-pip-hp.vtm-pip-aggravated::before {
+  background: linear-gradient(
+    to bottom right,
+    transparent 42%, #cc2020 42%, #cc2020 58%, transparent 58%
+  );
+}
+.vtm-pip.vtm-pip-hp.vtm-pip-aggravated::after {
+  background: linear-gradient(
+    to bottom left,
+    transparent 42%, #cc2020 42%, #cc2020 58%, transparent 58%
+  );
+}
+
+/* ── Willpower pips ── */
+.vtm-pip.vtm-pip-wp.vtm-pip-superficial {
+  background:   #2a2a2a;
+  border-color: #2255aa;
+}
+.vtm-pip.vtm-pip-wp.vtm-pip-superficial::after {
+  content:    '';
+  position:   absolute;
+  inset:      0;
+  background: linear-gradient(
+    to bottom right,
+    transparent 42%, #3377cc 42%, #3377cc 58%, transparent 58%
+  );
+}
+.vtm-pip.vtm-pip-wp.vtm-pip-aggravated {
+  background:   #0a0a1a;
+  border-color: #2255aa;
+}
+.vtm-pip.vtm-pip-wp.vtm-pip-aggravated::before,
+.vtm-pip.vtm-pip-wp.vtm-pip-aggravated::after {
+  content:    '';
+  position:   absolute;
+  inset:      0;
+}
+.vtm-pip.vtm-pip-wp.vtm-pip-aggravated::before {
+  background: linear-gradient(
+    to bottom right,
+    transparent 42%, #3377cc 42%, #3377cc 58%, transparent 58%
+  );
+}
+.vtm-pip.vtm-pip-wp.vtm-pip-aggravated::after {
+  background: linear-gradient(
+    to bottom left,
+    transparent 42%, #3377cc 42%, #3377cc 58%, transparent 58%
+  );
+}
+
+/* ── Hunger pips (unverändert) ── */
 .vtm-pip.vtm-pip-hunger          { border-color: #664400; }
 .vtm-pip.vtm-pip-hunger.filled   { background: #bb5500; border-color: #883300; }
 
+/* Legacy filled-class (für Hunger-Pips) */
+.vtm-pip.filled { background: #cc3333; border-color: #aa2222; }
+
 .vtm-track-value {
-  font-size:   12px;
+  font-size:   11px;
   font-weight: 600;
   color:       var(--vtm-text);
-  width:       34px;
+  width:       28px;
   text-align:  right;
   flex-shrink: 0;
 }
@@ -312,18 +438,31 @@
 
 /* ── Intent indicator ───────────────────────────────────────────────────────── */
 .vtm-intent-indicator {
-  font-size:     13px;
-  color:         #6ec86e;
-  padding:       4px 8px;
-  background:    rgba(74,154,74,0.15);
-  border:        1px solid rgba(74,154,74,0.3);
-  border-radius: var(--vtm-radius);
-  margin-bottom: 8px;
-  display:       flex;
-  gap:           6px;
-  align-items:   center;
+  padding:        4px 8px;
+  background:     rgba(74,154,74,0.15);
+  border:         1px solid rgba(74,154,74,0.3);
+  border-radius:  var(--vtm-radius);
+  margin-bottom:  8px;
+  display:        flex;
+  flex-direction: column;
+  gap:            2px;
 }
-.vtm-intent-target { color: var(--vtm-text-muted); font-style: italic; font-size: 12px; }
+.vtm-intent-row {
+  display:     flex;
+  align-items: center;
+  gap:         5px;
+}
+.vtm-intent-action {
+  font-size:   13px;
+  font-weight: 600;
+  color:       #6ec86e;
+}
+.vtm-intent-target {
+  font-size:  11px;
+  color:      var(--vtm-text-muted);
+  font-style: italic;
+  padding-left: 18px; /* Einzug unter dem Icon */
+}
 
 .vtm-intent-ready {
   font-size:   13px;
@@ -332,6 +471,85 @@
   align-items: center;
   gap:         5px;
   font-weight: 600;
+}
+
+/* ── Cover & Discipline badges ──────────────────────────────────────────────── */
+.vtm-card-badges {
+  display:     flex;
+  gap:         5px;
+  margin-top:  5px;
+  flex-wrap:   wrap;
+  align-items: center;
+}
+
+/* Gemeinsame Badge-Basis für Cover, Disziplinen, Dominate */
+.vtm-cover-btn,
+.vtm-cover-indicator,
+.vtm-discipline-badge,
+.vtm-dominate-badge {
+  /* Reset aller Browser-Button-Defaults */
+  -webkit-appearance: none;
+  -moz-appearance:    none;
+  appearance:         none;
+  box-sizing:         border-box;
+  outline:            none;
+  margin:             0;
+  font-family:        inherit;
+  font-size:          10px;
+  font-weight:        600;
+  line-height:        1.4;
+  letter-spacing:     0.04em;
+  white-space:        nowrap;
+  text-align:         center;
+  /* Einheitliches Layout */
+  display:        inline-flex;
+  align-items:    center;
+  gap:            3px;
+  padding:        2px 7px;
+  border-radius:  10px;
+  border:         1px solid #555;
+  color:          var(--vtm-text-muted);
+  background:     transparent;
+  cursor:         default;
+}
+.vtm-cover-btn {
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.vtm-cover-btn:hover {
+  border-color: var(--vtm-gold);
+  color:        var(--vtm-gold);
+}
+.vtm-cover-btn.vtm-cover-active,
+.vtm-cover-indicator.vtm-cover-active {
+  background:   rgba(52, 120, 52, 0.25);
+  border-color: #4a9a4a;
+  color:        #6aca6a;
+}
+.vtm-celerity-badge {
+  background:   rgba(80, 40, 140, 0.30);
+  border:       1px solid #7a4aaa;
+  color:        #b07ae0;
+}
+.vtm-dominate-badge {
+  background:   rgba(60, 20, 80, 0.35);
+  border:       1px solid #8b3aaa;
+  color:        #c87de8;
+}
+.vtm-fleetness-active {
+  background:   rgba(40, 100, 180, 0.30) !important;
+  border-color: #4a8ade !important;
+  color:        #7abcf0 !important;
+}
+.vtm-potence-badge {
+  background:   rgba(140, 40, 40, 0.30);
+  border:       1px solid #aa4a4a;
+  color:        #e08080;
+}
+.vtm-potence-active {
+  background:   rgba(180, 40, 40, 0.40) !important;
+  border-color: #de4a4a !important;
+  color:        #f0a0a0 !important;
 }
 
 /* ── Card action buttons ────────────────────────────────────────────────────── */
@@ -411,6 +629,214 @@
   border-bottom: 1px solid rgba(255,255,255,0.06);
   line-height:   1.5;
 }
+/* ── Log: Kopfzeile ──────────────────────────────────────────────────────── */
+.vtm-log-header-row {
+  display:     flex;
+  align-items: center;
+  gap:         5px;
+  margin-bottom: 3px;
+}
+.vtm-log-round {
+  flex-shrink:   0;
+  font-size:     10px;
+  font-weight:   700;
+  color:         var(--vtm-red);
+  background:    rgba(139,0,0,0.18);
+  border-radius: 3px;
+  padding:       1px 5px;
+}
+.vtm-log-attacker {
+  font-size:   12px;
+  font-weight: 600;
+  color:       var(--vtm-text-strong);
+  white-space: nowrap;
+  overflow:    hidden;
+  text-overflow: ellipsis;
+}
+.vtm-log-action-label {
+  font-size:    10px;
+  font-weight:  500;
+  color:        var(--vtm-text-muted);
+  background:   rgba(255,255,255,0.06);
+  border-radius: 3px;
+  padding:      0 4px;
+  flex-shrink:  0;
+}
+.vtm-log-arrow {
+  color:      var(--vtm-text-muted);
+  font-size:  11px;
+  flex-shrink: 0;
+}
+.vtm-log-defender {
+  font-size:   12px;
+  font-weight: 600;
+  color:       var(--vtm-text-strong);
+  white-space: nowrap;
+  overflow:    hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Log: Würfelzeilen ───────────────────────────────────────────────────── */
+.vtm-log-roll-row {
+  display:       flex;
+  align-items:   center;
+  gap:           6px;
+  font-size:     11px;
+  padding-left:  8px;
+  margin-bottom: 1px;
+}
+.vtm-log-atk-row .vtm-log-actor-tag {
+  color:       #c0a060;   /* gold — Angreifer */
+  font-weight: 600;
+  min-width:   0;
+  flex:        1;
+  white-space: nowrap;
+  overflow:    hidden;
+  text-overflow: ellipsis;
+}
+.vtm-log-def-row .vtm-log-actor-tag {
+  color:       #6090c0;   /* blau — Verteidiger */
+  font-weight: 600;
+  min-width:   0;
+  flex:        1;
+  white-space: nowrap;
+  overflow:    hidden;
+  text-overflow: ellipsis;
+}
+.vtm-log-roll-result {
+  color:       var(--vtm-text);
+  white-space: nowrap;
+  font-weight: 700;
+  font-size:   11px;
+  flex-shrink: 0;
+}
+.vtm-log-badge {
+  font-size:     9px;
+  font-weight:   700;
+  padding:       1px 4px;
+  border-radius: 3px;
+  white-space:   nowrap;
+}
+.vtm-log-messy   { background: rgba(180,60,200,0.3); color: #d080e0; }
+.vtm-log-bestial { background: rgba(200,60,60,0.3);  color: #e08080; }
+
+/* ── Log: WoD5e Würfelboxen ─────────────────────────────────────────────── */
+.vtm-log-dice {
+  display:     inline-flex;
+  flex-wrap:   wrap;
+  gap:         2px;
+  align-items: center;
+  flex:        1;
+}
+
+.vtm-log-die {
+  display:         inline-flex;
+  align-items:     center;
+  justify-content: center;
+  width:           18px;
+  height:          18px;
+  border-radius:   3px;
+  font-size:       11px;
+  font-weight:     700;
+  line-height:     1;
+  border:          1px solid transparent;
+  flex-shrink:     0;
+}
+
+/* Normale Würfel — dunkles Grau */
+.vtm-log-die-normal {
+  background:  #1e1e1e;
+  border-color: #444;
+}
+.vtm-log-die-normal.vtm-log-die-success { color: #d8d8d8; border-color: #555; }
+.vtm-log-die-normal.vtm-log-die-crit    { color: #ffd060; border-color: #a07820; }
+.vtm-log-die-normal.vtm-log-die-fail    { color: #444;    border-color: #333; }
+
+/* Hungerwürfel — Rot-Töne */
+.vtm-log-die-hunger {
+  background:  #2a1010;
+  border-color: #6a2020;
+}
+.vtm-log-die-hunger.vtm-log-die-success { color: #e08080; border-color: #7a3030; }
+.vtm-log-die-hunger.vtm-log-die-crit    { color: #ffd060; border-color: #9a5010; }
+.vtm-log-die-hunger.vtm-log-die-bestial { color: #ff6060; border-color: #aa2020; }
+.vtm-log-die-hunger.vtm-log-die-fail    { color: #5a2020; border-color: #4a1818; }
+
+/* ── Log: Schadenzeile ───────────────────────────────────────────────────── */
+.vtm-log-damage-row {
+  display:       flex;
+  align-items:   center;
+  gap:           6px;
+  font-size:     11px;
+  padding-left:  8px;
+  margin-top:    2px;
+}
+.vtm-log-damage-target {
+  color:       #6090c0;
+  font-weight: 600;
+  flex:        1;
+  white-space: nowrap;
+  overflow:    hidden;
+  text-overflow: ellipsis;
+}
+.vtm-log-damage-value {
+  font-weight:   700;
+  color:         #e06060;
+  white-space:   nowrap;
+}
+.vtm-log-damage-value.vtm-log-agg {
+  color:         #ff4040;
+  text-shadow:   0 0 4px rgba(255,64,64,0.5);
+}
+.vtm-log-damage-formula {
+  font-size:  10px;
+  color:      var(--vtm-muted);
+  font-style: italic;
+  white-space: nowrap;
+}
+.vtm-log-blocked {
+  font-size:    11px;
+  color:        var(--vtm-muted);
+  padding-left: 8px;
+  margin-top:   2px;
+  font-style:   italic;
+}
+
+/* ── Log: Rundentrennbalken ──────────────────────────────────────────────── */
+.vtm-log-round-separator {
+  display:         flex;
+  align-items:     center;
+  gap:             8px;
+  margin:          8px 0 4px;
+}
+.vtm-log-round-separator::before,
+.vtm-log-round-separator::after {
+  content:    '';
+  flex:       1;
+  height:     3px;
+  background: linear-gradient(90deg, transparent, var(--vtm-accent, #8b2020), transparent);
+  border-radius: 2px;
+}
+.vtm-log-round-separator-label {
+  font-size:    10px;
+  font-weight:  700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color:        var(--vtm-accent, #c04040);
+  white-space:  nowrap;
+  padding:      2px 8px;
+  border:       1px solid var(--vtm-accent, #8b2020);
+  border-radius: 3px;
+  background:   rgba(139,32,32,0.12);
+}
+
+/* ── Log: Nicht-Angriff ──────────────────────────────────────────────────── */
+.vtm-log-narrative {
+  font-size:   11px;
+  color:       var(--vtm-text);
+  font-style:  italic;
+  padding-left: 8px;
+}
 
 /* ── Buttons ────────────────────────────────────────────────────────────────── */
 .vtm-btn {
@@ -446,14 +872,6 @@
 /* ─────────────────────────────────────────────────────────────────────────────
    Action Dialog
 ───────────────────────────────────────────────────────────────────────────── */
-.vtm-action-dialog .window-content {
-  background:  var(--vtm-bg);
-  color:       var(--vtm-text);
-  padding:     0;
-  font-family: var(--vtm-font);
-  font-size:   var(--vtm-font-sz);
-}
-
 .vtm-action-dialog-wrap { padding: 16px; }
 
 .vtm-actor-header {
@@ -502,9 +920,10 @@
   box-sizing:    border-box;
 }
 
-/* Optgruppen-Label etwas kleiner damit mehr Platz für Optionen bleibt */
+/* Optgruppen-Label und Optionen: Browser ignoriert diese meist,
+   color-scheme:dark auf dem select ist der zuverlässige Weg */
 .vtm-form-group select optgroup { font-size: 11px; }
-.vtm-form-group select option   { font-size: 12px; }
+.vtm-form-group select option   { font-size: 12px; background: #1e1e1e; color: #ddd; }
 .vtm-form-group select:focus,
 .vtm-form-group input:focus {
   outline:      none;
@@ -537,6 +956,18 @@
 }
 .vtm-number-input { width: 60px !important; text-align: center; }
 
+.vtm-pool-modifier-group { margin-top: 6px; }
+.vtm-pool-modifier-row {
+  display:     flex;
+  align-items: center;
+  gap:         10px;
+}
+.vtm-pool-modifier-hint {
+  font-size:  12px;
+  color:      var(--vtm-text-muted);
+  font-style: italic;
+}
+
 .vtm-dialog-footer {
   display:         flex;
   justify-content: flex-end;
@@ -544,6 +975,54 @@
   padding-top:     12px;
   border-top:      1px solid var(--vtm-border);
 }
+
+/* ── Ziel-Checkboxen ──────────────────────────────────────────────────────── */
+.vtm-target-list {
+  display:        flex;
+  flex-direction: column;
+  gap:            4px;
+}
+
+.vtm-target-row {
+  display:       flex;
+  align-items:   center;
+  gap:           8px;
+  padding:       4px 8px;
+  border-radius: 3px;
+  cursor:        pointer;
+  font-weight:   normal;
+  text-transform: none;
+  letter-spacing: normal;
+  color:         var(--vtm-text);
+  font-size:     12px;
+  background:    var(--vtm-bg-card);
+  border:        1px solid var(--vtm-border);
+  transition:    background 0.12s;
+}
+.vtm-target-row:hover                    { background: var(--vtm-bg-card-alt); }
+.vtm-target-row input[type="checkbox"]   {
+  margin:       0;
+  flex-shrink:  0;
+  width:        15px;
+  height:       15px;
+  accent-color: var(--vtm-red);
+  cursor:       pointer;
+}
+.vtm-target-name             { flex: 1; }
+.vtm-target-side             { font-size: 10px; padding: 1px 6px; border-radius: 8px; }
+.vtm-side-players            { background: rgba(42,90,138,0.35); color: #7aaee8; }
+.vtm-side-enemies            { background: rgba(158,32,32,0.35);  color: #e07070; }
+
+/* Pool-Vorschau im Action Dialog */
+.vtm-pool-preview {
+  margin-top:    6px;
+  font-size:     12px;
+  color:         var(--vtm-text-muted);
+  padding:       4px 8px;
+  background:    rgba(255,255,255,0.04);
+  border-radius: 3px;
+}
+.vtm-pool-preview strong { color: var(--vtm-gold); }
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Dice Roll Popup
@@ -588,45 +1067,6 @@
 }
 .vtm-def-breakdown { margin-top: 10px; }
 
-/* ── Würfelschale ─────────────────────────────────────────────────────────── */
-.vtm-dice-tray {
-  display:   flex;
-  flex-wrap: wrap;
-  gap:       6px;
-  margin-bottom: 8px;
-}
-
-.vtm-die {
-  width:         36px;
-  height:        36px;
-  border-radius: 6px;
-  display:       flex;
-  align-items:   center;
-  justify-content: center;
-  font-size:     16px;
-  font-weight:   700;
-  border:        2px solid transparent;
-  transition:    transform 0.1s;
-  cursor:        default;
-  position:      relative;
-}
-.vtm-die:hover { transform: scale(1.1); }
-
-/* Hunger-Würfel haben einen roten Ring */
-.vtm-hunger-die { box-shadow: 0 0 0 2px #8a2020; }
-
-/* Würfel-Zustände */
-.vtm-die.die-fail         { background: #2a2a2a; color: #666; border-color: #444; }
-.vtm-die.die-success      { background: #1a3a1a; color: #6ec86e; border-color: #3a6a3a; }
-.vtm-die.die-crit         { background: #3a3000; color: #ffd700; border-color: #8a7000; font-size: 14px; }
-.vtm-die.die-hunger-crit  { background: #3a1a00; color: #ff9900; border-color: #aa5500; font-size: 14px; }
-.vtm-die.die-bestial      { background: #4a0000; color: #ff4444; border-color: #aa0000; animation: vtm-pulse 1s infinite; }
-
-@keyframes vtm-pulse {
-  0%, 100% { box-shadow: 0 0 0 2px #8a2020; }
-  50%       { box-shadow: 0 0 10px 3px #ff0000; }
-}
-
 /* ── Roll summary ─────────────────────────────────────────────────────────── */
 .vtm-roll-summary {
   font-size:   14px;
@@ -648,8 +1088,6 @@
   padding-top:   10px;
   border-top:    1px solid var(--vtm-border);
 }
-
-.vtm-def-tray .vtm-die { width: 30px; height: 30px; font-size: 13px; }
 
 /* ── Net result ──────────────────────────────────────────────────────────── */
 .vtm-net-result {
@@ -713,3 +1151,420 @@
 }
 .vtm-chat-results ul { margin: 0; padding: 0 0 0 16px; }
 .vtm-result-entry    { color: #c8b898; padding: 3px 0; line-height: 1.5; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Roll Confirm Dialog
+───────────────────────────────────────────────────────────────────────────── */
+.vtm-roll-confirm-wrap {
+  padding: 16px 20px 12px;
+}
+
+.vtm-roll-confirm .vtm-roll-info {
+  padding:       10px 0;
+  border-top:    1px solid var(--vtm-border);
+  border-bottom: 1px solid var(--vtm-border);
+  margin-bottom: 12px;
+  display:       flex;
+  flex-direction: column;
+  gap:           6px;
+  font-size:     13px;
+}
+
+.vtm-roll-action-label { color: var(--vtm-text); }
+.vtm-roll-targets      { color: var(--vtm-muted); }
+
+.vtm-roll-pool-line {
+  margin-top: 4px;
+  font-size:  14px;
+  color:      var(--vtm-text);
+}
+
+.vtm-roll-dv   { color: #8bcfe8; font-weight: bold; }
+.vtm-roll-dg   { color: #e88b8b; font-weight: bold; }
+.vtm-roll-plus { color: var(--vtm-muted); }
+.vtm-roll-total { color: var(--vtm-muted); font-size: 12px; }
+
+.vtm-roll-surge-note {
+  font-size:   11px;
+  color:       #e05050;
+  margin-top:  3px;
+  font-weight: 600;
+}
+.vtm-roll-modifier-note {
+  font-size:   11px;
+  color:       #7ab3e0;
+  margin-top:  3px;
+  font-weight: 600;
+}
+.vtm-roll-split-note {
+  font-size:  11px;
+  color:      var(--vtm-muted);
+  margin-top: 2px;
+}
+
+.vtm-roll-narrative {
+  font-style: italic;
+  color:      var(--vtm-muted);
+  font-size:  12px;
+}
+
+.vtm-roll-footer {
+  justify-content: flex-end;
+  gap:             8px;
+}
+
+/* ── Interaktionstyp-Label im Roll-Confirm-Dialog ─────────────────────────── */
+.vtm-interaction-label {
+  font-size:     12px;
+  font-weight:   600;
+  padding:       5px 10px;
+  border-radius: var(--vtm-radius);
+  margin-bottom: 10px;
+  letter-spacing: 0.04em;
+}
+.vtm-interaction-contested  { background: rgba(158,80,20,0.25); color: #ffb060; border: 1px solid #8a5010; }
+.vtm-interaction-opposed    { background: rgba(42,90,138,0.25); color: #7aaee8; border: 1px solid #2a5a8a; }
+.vtm-interaction-unhindered { background: rgba(158,32,32,0.20); color: #e07070; border: 1px solid #7a2020; }
+
+/* ── Contested-Block im Chat ──────────────────────────────────────────────── */
+.vtm-contested-header {
+  font-size:   12px;
+  font-weight: 700;
+  color:       #ffb060;
+  margin-bottom: 6px;
+  display:     flex;
+  align-items: center;
+  gap:         6px;
+}
+.vtm-contested-vs {
+  display:       flex;
+  gap:           8px;
+  align-items:   flex-start;
+  flex-wrap:     wrap;
+  margin-bottom: 6px;
+}
+.vtm-contested-side {
+  flex:          1;
+  min-width:     0;
+  background:    rgba(255,255,255,0.03);
+  border-radius: 3px;
+  padding:       6px 8px;
+}
+.vtm-contested-side-label {
+  font-size:   11px;
+  font-weight: 600;
+  color:       var(--vtm-text-muted);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.vtm-winner-label { color: #6ec86e; }
+.vtm-loser-label  { color: #e07070; }
+
+.vtm-unhindered-badge {
+  font-size:   11px;
+  color:       #e07070;
+  font-style:  italic;
+  font-weight: 400;
+}
+
+/* ── Contested role sub-label (Angriff / Gegenangriff) ───────────────────── */
+.vtm-contested-role-label {
+  font-size:    10px;
+  font-weight:  600;
+  color:        var(--vtm-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+  display:      flex;
+  align-items:  center;
+  gap:          4px;
+}
+
+.vtm-pool-compact {
+  font-size:    10px;
+  color:        var(--vtm-text-muted);
+  margin-bottom: 4px;
+  padding:      0;
+  background:   transparent;
+  border:       none;
+}
+
+/* ── Eingebettetes wod5e Roll-HTML ───────────────────────────────────────── */
+.vtm-wod5e-roll {
+  margin: 4px 0;
+}
+.vtm-wod5e-roll .roll-display { margin: 0; }
+
+/* ── Blood Surge ─────────────────────────────────────────────────────────── */
+.vtm-blood-surge-group {
+  border:        1px solid #6b2b2b;
+  border-radius: 6px;
+  padding:       8px 10px;
+  background:    rgba(100, 20, 20, 0.2);
+}
+
+.vtm-blood-surge-label {
+  display:     flex;
+  align-items: center;
+  gap:         8px;
+  cursor:      pointer;
+  font-size:   13px;
+  font-weight: 600;
+  color:       var(--vtm-text);
+  margin:      0;
+}
+
+.vtm-blood-surge-label input[type="checkbox"] {
+  width:        16px;
+  height:       16px;
+  cursor:       pointer;
+  accent-color: var(--vtm-red);
+  flex-shrink:  0;
+}
+
+.vtm-blood-surge-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.vtm-blood-surge-info {
+  font-size:   11px;
+  font-weight: 400;
+  color:       var(--vtm-text-muted);
+  margin-left: auto;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Willpower Re-roll Dialog
+───────────────────────────────────────────────────────────────────────────── */
+.vtm-willpower-reroll .window-content {
+  background: var(--vtm-bg) !important;
+  color:      var(--vtm-text) !important;
+  padding:    0;
+  font-family: var(--vtm-font);
+  font-size:  var(--vtm-font-sz);
+}
+
+.vtm-willpower-reroll-wrap {
+  padding: 16px 20px 12px;
+}
+
+.vtm-wp-track {
+  font-size: 12px;
+  color:     var(--vtm-text-muted);
+  margin-top: 2px;
+}
+
+.vtm-reroll-hint {
+  font-size:     13px;
+  color:         var(--vtm-text-muted);
+  padding:       8px 10px;
+  background:    rgba(42,90,138,0.15);
+  border:        1px solid rgba(42,90,138,0.4);
+  border-radius: var(--vtm-radius);
+  margin-bottom: 14px;
+}
+
+.vtm-dice-section {
+  display:        flex;
+  flex-direction: column;
+  gap:            12px;
+  margin-bottom:  14px;
+}
+
+.vtm-dice-group-label {
+  font-size:     11px;
+  font-weight:   600;
+  color:         var(--vtm-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom:  6px;
+}
+
+.vtm-dice-select-hint {
+  font-weight: 400;
+  color:       #6a9acc;
+  text-transform: none;
+}
+
+.vtm-dice-no-reroll {
+  font-weight: 400;
+  color:       #8a5050;
+  text-transform: none;
+}
+
+.vtm-dice-row {
+  display:   flex;
+  flex-wrap: wrap;
+  gap:       6px;
+}
+
+/* ── Single die ────────────────────────────────────────────────────────────── */
+.vtm-die {
+  position:      relative;
+  width:         42px;
+  height:        42px;
+  border-radius: 6px;
+  border:        2px solid transparent;
+  display:       flex;
+  flex-direction: column;
+  align-items:   center;
+  justify-content: center;
+  cursor:        default;
+  user-select:   none;
+  transition:    border-color 0.12s, transform 0.1s;
+}
+
+/* Normal dice — selectable */
+.vtm-die-normal {
+  cursor: pointer;
+}
+.vtm-die-normal input[type="checkbox"] {
+  position: absolute;
+  opacity:  0;
+  width:    100%;
+  height:   100%;
+  cursor:   pointer;
+  margin:   0;
+}
+.vtm-die-normal:has(input:checked) {
+  border-color: #6aacff !important;
+  box-shadow:   0 0 6px rgba(100,170,255,0.45);
+  transform:    scale(1.08);
+}
+.vtm-die-normal:hover {
+  border-color: rgba(100,170,255,0.4);
+}
+
+/* Hunger dice — not selectable */
+.vtm-die-hunger {
+  opacity: 0.85;
+}
+
+/* Die value states */
+.vtm-die-fail {
+  background:   #2a2a2a;
+  border-color: #555;
+  color:        #666;
+}
+.vtm-die-fail-one,
+.vtm-die-bestial {
+  background:   #2a1a1a;
+  border-color: #7a2020;
+  color:        #e05050;
+}
+.vtm-die-success {
+  background:   #1a2e1a;
+  border-color: #3a6a3a;
+  color:        #6ad46a;
+}
+.vtm-die-crit {
+  background:   #2a2010;
+  border-color: #8a6a10;
+  color:        #ffd060;
+}
+
+/* Symbol is the main die content (☥ ★ ☠ ·) */
+.vtm-die-symbol {
+  font-size:   22px;
+  line-height: 1;
+  font-style:  normal;
+}
+
+/* Opponent dice section */
+.vtm-opponent-section {
+  border-top:  1px solid rgba(255,255,255,0.08);
+  padding-top: 10px;
+  opacity:     0.6;
+}
+.vtm-opponent-section .vtm-die-normal {
+  cursor: default;
+  pointer-events: none;
+}
+
+.vtm-reroll-footer {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.vtm-reroll-count {
+  font-size: 12px;
+  opacity:   0.8;
+}
+
+/* ── Combat result chat messages ──────────────────────────────────────────── */
+.vtm-chat-result {
+  font-family: var(--vtm-font, 'Segoe UI', Arial, sans-serif);
+  background:  #2a2a2a;
+  border:      1px solid #555;
+  border-radius: 5px;
+  padding:     8px 10px;
+  color:       #e8dcc8;
+  font-size:   13px;
+}
+.vtm-chat-title {
+  font-weight: 700;
+  font-size:   14px;
+  color:       #f5efe0;
+  margin-bottom: 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  padding-bottom: 4px;
+}
+.vtm-chat-roll-row {
+  display:     flex;
+  align-items: center;
+  gap:         6px;
+  margin:      3px 0;
+}
+.vtm-chat-def-row {
+  opacity: 0.85;
+}
+.vtm-chat-role {
+  font-size:   11px;
+  color:       #999;
+  min-width:   48px;
+  flex-shrink: 0;
+}
+.vtm-chat-dice {
+  display:     flex;
+  flex-wrap:   wrap;
+  gap:         3px;
+  flex:        1;
+}
+.vtm-chat-die {
+  display:     inline-flex;
+  align-items: center;
+  justify-content: center;
+  width:       22px;
+  height:      22px;
+  border-radius: 3px;
+  border:      1px solid #555;
+  font-size:   14px;
+  line-height: 1;
+  background:  #3a3a3a;
+}
+.vtm-chat-die-crit    { background: rgba(100,60,0,0.5);  border-color: #d4a840; color: #ffe070; }
+.vtm-chat-die-success { background: rgba(20,80,20,0.4);  border-color: #4a9a4a; color: #7aea7a; }
+.vtm-chat-die-fail    { background: rgba(50,50,50,0.4);  border-color: #666;    color: #888; }
+.vtm-chat-die-bestial { background: rgba(120,0,0,0.5);   border-color: #cc3333; color: #ff8080; }
+.vtm-chat-die-hunger  { border-style: dashed; }
+.vtm-chat-tally {
+  font-size:   11px;
+  color:       #bbb;
+  white-space: nowrap;
+}
+.vtm-chat-outcome {
+  margin-top:  6px;
+  padding-top: 5px;
+  border-top:  1px solid rgba(255,255,255,0.1);
+  font-size:   13px;
+}
+.vtm-chat-outcome-hit    { color: #e07070; }
+.vtm-chat-outcome-block  { color: #888; }
+.vtm-chat-outcome-tie    { color: #b0a060; }
+.vtm-chat-flag {
+  font-size:   12px;
+  margin-top:  3px;
+}
+.vtm-chat-flag-messy   { color: #ff5555; }
+.vtm-chat-flag-bestial { color: #ff8800; }

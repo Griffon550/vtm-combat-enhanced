@@ -15,9 +15,11 @@
         </button>
       {{/if}}
       {{#if isSetup}}
+        {{#if isGM}}
         <button data-action="roll-all-initiative" class="vtm-btn vtm-btn-secondary">
           <i class="fas fa-dice-d10"></i> Roll All Initiative
         </button>
+        {{/if}}
       {{/if}}
       {{#if canResolve}}
         <button data-action="resolve-all" class="vtm-btn vtm-btn-danger">
@@ -30,9 +32,11 @@
         </button>
       {{/if}}
       {{#unless isSetup}}
+        {{#if isGM}}
         <button data-action="roll-all-initiative" class="vtm-btn vtm-btn-ghost" title="Re-roll all initiative">
           <i class="fas fa-dice-d10"></i>
         </button>
+        {{/if}}
       {{/unless}}
     </div>
   </div>
@@ -86,7 +90,63 @@
         <h4 class="vtm-log-header">Combat Log</h4>
         <div class="vtm-log">
           {{#each log}}
-            <div class="vtm-log-entry">{{narrative}}</div>
+            {{#if _roundSeparator}}
+              <div class="vtm-log-round-separator">
+                <span class="vtm-log-round-separator-label">Runde {{round}}</span>
+              </div>
+            {{else}}
+            <div class="vtm-log-entry">
+              {{!-- Kopfzeile: Runde + Akteur → Ziel --}}
+              <div class="vtm-log-header-row">
+                {{#if round}}<span class="vtm-log-round">R{{round}}</span>{{/if}}
+                <span class="vtm-log-attacker">{{attackerName}}</span>
+                {{#if actionType}}
+                  <span class="vtm-log-action-label">{{intentLabel actionType}}</span>
+                {{/if}}
+                {{#if defenderName}}
+                  <span class="vtm-log-arrow">→</span>
+                  <span class="vtm-log-defender">{{defenderName}}</span>
+                {{/if}}
+              </div>
+
+              {{#if attackRoll}}
+                {{!-- Angriffswurf --}}
+                <div class="vtm-log-roll-row vtm-log-atk-row">
+                  <span class="vtm-log-actor-tag">{{attackerName}}</span>
+                  {{{diceBoxes attackRoll.normalRolls attackRoll.hungerRolls}}}
+                  <span class="vtm-log-roll-result">{{attackRoll.successes}}</span>
+                  {{#if attackRoll.messyCritical}}<span class="vtm-log-badge vtm-log-messy">Messy</span>{{/if}}
+                  {{#if attackRoll.bestialFailure}}<span class="vtm-log-badge vtm-log-bestial">Bestial</span>{{/if}}
+                </div>
+
+                {{!-- Verteidigungswurf (falls vorhanden) --}}
+                {{#if defenseRoll}}
+                <div class="vtm-log-roll-row vtm-log-def-row">
+                  <span class="vtm-log-actor-tag">{{defenderName}}</span>
+                  {{{diceBoxes defenseRoll.normalRolls defenseRoll.hungerRolls}}}
+                  <span class="vtm-log-roll-result">{{defenseRoll.successes}}</span>
+                </div>
+                {{/if}}
+
+                {{!-- Ergebnis --}}
+                {{#if netSuccesses}}
+                  <div class="vtm-log-damage-row">
+                    <span class="vtm-log-defender vtm-log-damage-target">{{defenderName}}</span>
+                    <span class="vtm-log-damage-value {{#if (eq damageType 'aggravated')}}vtm-log-agg{{/if}}">
+                      −{{damage}}
+                      {{#if (eq damageType 'aggravated')}}agg{{/if}}
+                    </span>
+                    <span class="vtm-log-damage-formula">{{damageFormula this}}</span>
+                  </div>
+                {{else}}
+                  <div class="vtm-log-blocked">geblockt</div>
+                {{/if}}
+              {{else}}
+                {{!-- Nicht-Angriff --}}
+                <div class="vtm-log-narrative">{{narrative}}</div>
+              {{/if}}
+            </div>
+            {{/if}}{{!-- /_roundSeparator --}}
           {{else}}
             <p class="vtm-muted">No actions yet.</p>
           {{/each}}

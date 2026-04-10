@@ -1,0 +1,68 @@
+{{!-- Roll Confirm Dialog --}}
+<div class="vtm-roll-confirm-wrap">
+
+  <div class="vtm-actor-header">
+    <img src="{{rollInfo.img}}" class="vtm-dialog-avatar" alt="{{rollInfo.name}}" />
+    <h3>{{rollInfo.name}}</h3>
+  </div>
+
+  {{#if rollInfo.interactionLabel}}
+  <div class="vtm-interaction-label vtm-interaction-{{rollInfo.interactionType}}">
+    {{rollInfo.interactionLabel}}
+  </div>
+  {{/if}}
+
+  <div class="vtm-roll-info">
+    <div class="vtm-roll-action-label">
+      <strong>Aktion:</strong> {{rollInfo.actionLabel}}
+    </div>
+
+    {{#if rollInfo.targetLabel}}
+    <div class="vtm-roll-targets">
+      <strong>Ziel(e):</strong> {{rollInfo.targetLabel}}
+    </div>
+    {{/if}}
+
+    {{#if rollInfo.isAttack}}
+    <div class="vtm-roll-pool-line">
+      <strong>Würfelpool:</strong>
+      {{#if rollInfo.normalDice}}
+        <span class="vtm-roll-dv">{{rollInfo.normalDice}}dV</span>
+      {{/if}}
+      {{#if rollInfo.hungerDice}}
+        <span class="vtm-roll-plus"> + </span>
+        <span class="vtm-roll-dg">{{rollInfo.hungerDice}}dG</span>
+      {{/if}}
+      <span class="vtm-roll-total"> ({{rollInfo.totalDice}} Würfel)</span>
+      {{#if rollInfo.surgeNote}}
+        <div class="vtm-roll-surge-note">🩸 {{rollInfo.surgeNote}}</div>
+      {{/if}}
+      {{#if rollInfo.modifierNote}}
+        <div class="vtm-roll-modifier-note">⚙ {{rollInfo.modifierNote}}</div>
+      {{/if}}
+      {{#if rollInfo.splitNote}}
+        <div class="vtm-roll-split-note">{{rollInfo.splitNote}}</div>
+      {{/if}}
+    </div>
+    {{/if}}
+
+    {{#if rollInfo.narrativeHint}}
+    <div class="vtm-roll-narrative">{{rollInfo.narrativeHint}}</div>
+    {{/if}}
+  </div>
+
+  <div class="vtm-dialog-footer vtm-roll-footer">
+    <button data-action="abort" class="vtm-btn vtm-btn-danger">
+      <i class="fas fa-times"></i> Aktion abbrechen
+    </button>
+    {{#unless isHeld}}
+    <button data-action="hold" class="vtm-btn vtm-btn-ghost">
+      <i class="fas fa-pause"></i> Zurückhalten
+    </button>
+    {{/unless}}
+    <button data-action="roll" class="vtm-btn vtm-btn-primary">
+      <i class="fas fa-dice-d10"></i> Würfeln
+    </button>
+  </div>
+
+</div>
